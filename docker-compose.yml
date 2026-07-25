@@ -1,0 +1,18 @@
+# Convenience Postgres for local development.
+#   docker compose up -d
+# Then set DATABASE_URL in .env to:
+#   postgresql://postgres:postgres@localhost:5432/schoolgate?schema=public
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: schoolgate
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:

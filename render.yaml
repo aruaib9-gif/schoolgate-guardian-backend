@@ -1,0 +1,75 @@
+# ---------------------------------------------------------------------------
+# Render Blueprint for SchoolGate Guardian API
+#
+# One-click infrastructure: a managed PostgreSQL database + the Dockerized API.
+# On Render: New → Blueprint → connect this repo. Render reads this file and
+# provisions everything below. Migrations run automatically on start
+# (start:prod → prisma migrate deploy).
+#
+# After the first deploy, seed starter data once from the service's Shell tab:
+#   npm run seed
+#
+# Values marked `sync: false` are secrets you type into the Render dashboard.
+# ---------------------------------------------------------------------------
+databases:
+  - name: schoolgate-db
+    databaseName: schoolgate
+    user: schoolgate
+    plan: free # change to `starter` (or higher) for production; free DBs expire
+
+services:
+  - type: web
+    name: schoolgate-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free # change to `starter`+ for always-on production
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # Wired automatically from the database created above.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: schoolgate-db
+          property: connectionString
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      # A strong random secret, generated once by Render and kept stable.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: MAX_UPLOAD_MB
+        value: 10
+      # Public URL of THIS service. Render exposes its own host at runtime;
+      # set this to your final URL (e.g. https://schoolgate-api.onrender.com)
+      # after the first deploy so returned file links are correct.
+      - key: PUBLIC_URL
+        sync: false
+      # Comma-separated frontend origin(s) allowed to call the API.
+      - key: CORS_ORIGIN
+        sync: false
+      # First-run admin login (used by `npm run seed`). Set real values.
+      - key: SEED_SUPERADMIN_EMAIL
+        sync: false
+      - key: SEED_SUPERADMIN_PASSWORD
+        sync: false
+      - key: SEED_SCHOOL_ADMIN_PASSWORD
+        sync: false
+      # Shared secret for scheduler/cron calls to /functions/*.
+      - key: CRON_SECRET
+        generateValue: true
+      # Email (SMTP). Optional — if unset, emails are logged instead of sent.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_SECURE
+        value: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: EMAIL_FROM
+        sync: false

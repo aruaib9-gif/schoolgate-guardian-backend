@@ -1,0 +1,745 @@
+// SchoolGate Guardian — data model
+// Node + Express + Prisma + PostgreSQL
+//
+// Conventions
+//  - Every model carries base fields: id, created_date, updated_date, created_by.
+//  - Field names are snake_case to mirror the original entity schemas exactly, so
+//    API payloads match what the app already produces/consumes.
+//  - Cross-entity references are stored as string ids (document-style, like the
+//    original low-code platform) rather than hard FKs, keeping the flexible
+//    multi-tenant shape. Indexes are added on school_id and hot filter fields.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth + user account (the platform's built-in "User", merged with User entity)
+// ---------------------------------------------------------------------------
+model User {
+  id            String    @id @default(cuid())
+  // --- auth ---
+  email         String    @unique
+  password_hash String?
+  // Global platform role: "admin" (full app admin) or "user". App code reads user.role.
+  role          String    @default("user")
+  full_name     String?
+  // --- profile / tenant fields (from User entity) ---
+  school_id         String?
+  person_id         String?
+  user_category     String? // superadmin | admin | management | security | reception | teacher | school_worker | staff | parent | student
+  gate_name         String?
+  assigned_bus_id   String?
+  is_active         Boolean  @default(true)
+  profile_completed Boolean  @default(false)
+  last_login        DateTime?
+
+  created_date DateTime  @default(now())
+  updated_date DateTime  @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([user_category])
+  @@index([person_id])
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Core school + people
+// ---------------------------------------------------------------------------
+model School {
+  id                String   @id @default(cuid())
+  name              String
+  code              String   @unique
+  logo_url          String?
+  address           String?
+  phone             String?
+  email             String?
+  website           String?
+  admin_email       String?
+  subscription_plan String   @default("trial") // trial | basic | premium | enterprise
+  status            String   @default("active") // active | trial | suspended | inactive
+  max_users         Int      @default(500)
+  country           String?
+  timezone          String   @default("UTC")
+  gate_locations    String[] @default([])
+  settings          Json?
+  notes             String?
+
+  // --- platform / super-admin fields (kept in sync with the Super Admin console) ---
+  city         String?
+  state        String?
+  admin_name   String?
+  admin_phone  String?
+  // Onboarding-declared size. The Super Admin analytics endpoints prefer live
+  // Person/AccessLog counts and fall back to these when a school has no records yet.
+  students     Int?
+  staff        Int?
+  gates        Int?
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([status])
+  @@index([subscription_plan])
+  @@index([state])
+  @@map("schools")
+}
+
+model Person {
+  id                     String   @id @default(cuid())
+  school_id              String?
+  full_name              String
+  first_name             String?
+  last_name              String?
+  email                  String?
+  phone                  String?
+  whatsapp_number        String?
+  category               String // student | parent | teacher | school_worker | management | security | reception | staff | school_bus_admin | guest
+  portal_access          Boolean  @default(false)
+  qr_code                String
+  photo_url              String?
+  address                String?
+  emergency_contact      String?
+  emergency_phone        String?
+  linked_children        String[] @default([])
+  father_email           String?
+  mother_email           String?
+  grade                  String?
+  department             String?
+  current_status         String   @default("outside") // inside | outside
+  registration_completed Boolean  @default(false)
+  registration_token     String?
+  profile_completed      Boolean  @default(false)
+  active                 Boolean  @default(true)
+  invitation_id          String?
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([category])
+  @@index([qr_code])
+  @@index([email])
+  @@map("people")
+}
+
+model Class {
+  id                 String   @id @default(cuid())
+  school_id          String?
+  class_name         String
+  grade              String
+  room               String?
+  class_teacher_id   String?
+  class_teacher_name String?
+  student_ids        String[] @default([])
+  // Array of timetable slot objects: { day, start_time, end_time, subject, teacher_id, teacher_name, room }
+  timetable          Json?
+  is_active          Boolean  @default(true)
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@map("classes")
+}
+
+// ---------------------------------------------------------------------------
+// Access control / gate
+// ---------------------------------------------------------------------------
+model AccessLog {
+  id              String   @id @default(cuid())
+  school_id       String?
+  person_id       String
+  person_name     String?
+  person_category String?
+  action          String // entry | exit
+  timestamp       DateTime
+  scanned_by      String?
+  gate_name       String?
+  notes           String?
+  pass_type       String   @default("regular") // regular | one_time | guest
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([person_id])
+  @@index([timestamp])
+  @@map("access_logs")
+}
+
+model SecurityAlert {
+  id              String    @id @default(cuid())
+  school_id       String?
+  alert_type      String // guest_pass_used | invalid_qr_attempt | extended_presence | unauthorized_access | suspicious_activity
+  severity        String    @default("medium") // low | medium | high
+  title           String
+  message         String
+  person_id       String?
+  person_name     String?
+  location        String    @default("Main Gate")
+  status          String    @default("unread") // unread | read | acknowledged | resolved
+  acknowledged_by String?
+  acknowledged_at DateTime?
+  metadata        Json?
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([status])
+  @@map("security_alerts")
+}
+
+// ---------------------------------------------------------------------------
+// Attendance
+// ---------------------------------------------------------------------------
+model Attendance {
+  id           String   @id @default(cuid())
+  school_id    String?
+  student_id   String
+  student_name String?
+  teacher_id   String
+  teacher_name String?
+  class_name   String?
+  date         String // date (YYYY-MM-DD)
+  status       String   @default("present") // present | absent | late | excused
+  notes        String?
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([student_id])
+  @@index([date])
+  @@map("attendance")
+}
+
+// ---------------------------------------------------------------------------
+// Passes / visitors / guests
+// ---------------------------------------------------------------------------
+model OneTimePass {
+  id                     String    @id @default(cuid())
+  school_id              String?
+  parent_id              String
+  parent_name            String?
+  child_id               String
+  child_name             String?
+  purpose                String // pickup | dropoff
+  contact_phone          String?
+  special_instructions   String?
+  qr_code                String
+  status                 String    @default("active") // active | used | expired
+  valid_until            DateTime?
+  used_at                DateTime?
+  authorized_person_name String?
+  scheduled_date         String?
+  scheduled_time         String?
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([qr_code])
+  @@index([status])
+  @@map("one_time_passes")
+}
+
+model GuestPass {
+  id             String    @id @default(cuid())
+  school_id      String?
+  guest_name     String
+  guest_phone    String?
+  guest_email    String?
+  purpose        String
+  host_name      String?
+  qr_code        String
+  valid_from     DateTime?
+  valid_until    DateTime?
+  status         String    @default("active") // active | used | expired
+  used_at        DateTime?
+  scheduled_date String?
+  scheduled_time String?
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([qr_code])
+  @@index([status])
+  @@map("guest_passes")
+}
+
+model Visitor {
+  id                String    @id @default(cuid())
+  school_id         String?
+  visitor_name      String
+  visitor_phone     String?
+  visitor_email     String?
+  visitor_company   String?
+  visitor_photo_url String?
+  purpose           String
+  host_person_id    String?
+  host_name         String
+  host_email        String?
+  host_phone        String?
+  qr_code           String
+  badge_number      String?
+  visit_date        String
+  expected_arrival  String?
+  expected_duration String?
+  status            String    @default("pre_registered") // pre_registered | checked_in | checked_out | cancelled | expired
+  check_in_time     DateTime?
+  check_out_time    DateTime?
+  checked_in_by     String?
+  checked_out_by    String?
+  host_notified     Boolean   @default(false)
+  host_notified_at  DateTime?
+  notes             String?
+  items_carried     String?
+  vehicle_info      String?
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([status])
+  @@index([visit_date])
+  @@map("visitors")
+}
+
+// ---------------------------------------------------------------------------
+// School bus
+// ---------------------------------------------------------------------------
+model SchoolBus {
+  id                       String   @id @default(cuid())
+  school_id                String
+  bus_name                 String
+  bus_number               String?
+  plate_number             String?
+  driver_name              String?
+  driver_phone             String?
+  driver_person_id         String?
+  route_name               String?
+  route_description        String?
+  capacity                 Int      @default(30)
+  assigned_student_ids     String[] @default([])
+  stops                    String[] @default([])
+  current_status           String   @default("idle") // idle | loading | in_transit | unloading
+  is_active                Boolean  @default(true)
+  assigned_security_user_id String?
+  assigned_security_name    String?
+  assigned_security_email   String?
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@map("school_buses")
+}
+
+model BusScanLog {
+  id                    String   @id @default(cuid())
+  school_id             String?
+  bus_id                String
+  bus_name              String?
+  bus_number            String?
+  driver_name           String?
+  person_id             String
+  person_name           String?
+  person_category       String?
+  action                String // boarded | alighted | dropped_off
+  trip_direction        String? // pickup | dropoff
+  timestamp             DateTime
+  scanned_by            String?
+  scanned_by_name       String?
+  guardian_person_id    String?
+  guardian_name         String?
+  guardian_relationship String?
+  stop_name             String?
+  notes                 String?
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([bus_id])
+  @@index([person_id])
+  @@index([timestamp])
+  @@map("bus_scan_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Messaging
+// ---------------------------------------------------------------------------
+model Message {
+  id             String   @id @default(cuid())
+  school_id      String?
+  subject        String
+  body           String
+  sender_id      String
+  sender_name    String?
+  sender_role    String?
+  recipient_type String // individual | role | all
+  recipient_id   String?
+  recipient_name String?
+  recipient_role String? // student | parent | teacher | school_worker | management | security | admin | superadmin | all
+  priority       String   @default("normal") // low | normal | high | urgent
+  status         String   @default("sent") // sent | draft
+  read_by        String[] @default([])
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([recipient_id])
+  @@index([sender_id])
+  @@map("messages")
+}
+
+// ---------------------------------------------------------------------------
+// Invitations
+// ---------------------------------------------------------------------------
+model Invitation {
+  id              String    @id @default(cuid())
+  school_id       String
+  school_name     String?
+  first_name      String?
+  last_name       String?
+  email           String
+  phone           String?
+  role            String? // admin | teacher | parent | student | security | reception | staff | management | school_bus_admin
+  department      String?
+  grade           String?
+  portal_access   Boolean   @default(true)
+  invite_token    String
+  temp_password   String?
+  status          String    @default("pending") // pending | sent | accepted | expired | cancelled
+  expires_at      DateTime?
+  accepted_at     DateTime?
+  invited_by      String?
+  invited_by_name String?
+  person_id       String?
+  notes           String?
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([email])
+  @@index([invite_token])
+  @@map("invitations")
+}
+
+// ---------------------------------------------------------------------------
+// Roles / permissions / config / audit
+// ---------------------------------------------------------------------------
+model RolePermissions {
+  id          String  @id @default(cuid())
+  school_id   String?
+  role_name   String // superadmin | head_of_schools | admin | school_admin | management | security | teacher | school_worker | school_bus_admin | parent | student
+  // Nested permissions object (people, users, access_logs, attendance, ...)
+  permissions Json
+  description String?
+  is_active   Boolean @default(true)
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([role_name])
+  @@map("role_permissions")
+}
+
+model DashboardConfig {
+  id              String   @id @default(cuid())
+  school_id       String?
+  role            String
+  cards           String[] @default([])
+  show_stats      Boolean  @default(false)
+  welcome_message String?
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([role])
+  @@map("dashboard_configs")
+}
+
+model SystemConfig {
+  id           String  @id @default(cuid())
+  school_id    String?
+  config_key   String
+  config_value String
+  config_type  String  @default("general") // general | security | notifications | attendance | access
+  description  String?
+  is_active    Boolean @default(true)
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([config_key])
+  @@map("system_configs")
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  school_id    String?
+  actor_email  String?
+  actor_name   String?
+  actor_role   String?
+  action       String // login | logout | create | update | delete | export | scan | correction | permission_change | role_change | view
+  entity_type  String?
+  entity_id    String?
+  description  String?
+  before       Json?
+  after        Json?
+  metadata     Json?
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([action])
+  @@index([entity_type])
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// CRM
+// ---------------------------------------------------------------------------
+model CRMLead {
+  id              String   @id @default(cuid())
+  school_id       String?
+  title           String
+  contact_name    String?
+  contact_email   String?
+  contact_phone   String?
+  company         String?
+  source          String   @default("other") // website | referral | cold_call | email_campaign | social_media | trade_show | other
+  status          String   @default("new") // new | contacted | qualified | proposal | negotiation | won | lost
+  priority        String   @default("medium") // low | medium | high | critical
+  estimated_value Float    @default(0)
+  currency        String   @default("USD")
+  assigned_to     String?
+  assigned_to_name String?
+  notes           String?
+  next_follow_up  String?
+  tags            String[] @default([])
+  lost_reason     String?
+  probability     Float    @default(50)
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([status])
+  @@index([assigned_to])
+  @@map("crm_leads")
+}
+
+model CRMCustomer {
+  id             String   @id @default(cuid())
+  school_id      String?
+  company_name   String
+  contact_name   String?
+  contact_email  String?
+  contact_phone  String?
+  website        String?
+  industry       String?
+  address        String?
+  country        String?
+  status         String   @default("active") // active | inactive | churned | prospect
+  tier           String   @default("bronze") // bronze | silver | gold | platinum
+  assigned_to    String?
+  assigned_to_name String?
+  total_revenue  Float    @default(0)
+  notes          String?
+  lead_id        String?
+  tags           String[] @default([])
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([status])
+  @@index([assigned_to])
+  @@map("crm_customers")
+}
+
+model CRMProduct {
+  id          String  @id @default(cuid())
+  school_id   String?
+  name        String
+  description String?
+  category    String?
+  sku         String?
+  unit_price  Float   @default(0)
+  currency    String  @default("USD")
+  is_active   Boolean @default(true)
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@map("crm_products")
+}
+
+model CRMOrder {
+  id             String    @id @default(cuid())
+  school_id      String?
+  order_number   String?
+  document_type  String    @default("order") // order | quote | invoice | receipt
+  customer_id    String
+  customer_name  String?
+  sales_rep_email String?
+  sales_rep_name String?
+  status         String    @default("draft") // draft | pending | confirmed | fulfilled | cancelled | refunded
+  // Array of line item objects: { name, quantity, unit_price, total }
+  items          Json?
+  subtotal       Float     @default(0)
+  discount       Float     @default(0)
+  tax            Float     @default(0)
+  total_amount   Float     @default(0)
+  currency       String    @default("NGN")
+  notes          String?
+  due_date       String?
+  paid_at        DateTime?
+  quote_valid_until String?
+  invoice_number String?
+  receipt_number String?
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([customer_id])
+  @@index([status])
+  @@map("crm_orders")
+}
+
+model CRMActivity {
+  id             String    @id @default(cuid())
+  school_id      String?
+  type           String    @default("note") // call | email | meeting | note | task | demo | follow_up
+  title          String
+  description    String?
+  lead_id        String?
+  customer_id    String?
+  related_name   String?
+  sales_rep_email String?
+  sales_rep_name String?
+  status         String    @default("completed") // planned | completed | cancelled
+  scheduled_at   DateTime?
+  completed_at   DateTime?
+  outcome        String?
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([lead_id])
+  @@index([customer_id])
+  @@map("crm_activities")
+}
+
+model CRMSalesTarget {
+  id             String  @id @default(cuid())
+  school_id      String?
+  sales_rep_email String
+  sales_rep_name String?
+  period         String // e.g. 2024-Q1, 2024-05
+  period_type    String  @default("monthly") // monthly | quarterly | yearly
+  target_revenue Float   @default(0)
+  target_deals   Float   @default(0)
+  actual_revenue Float   @default(0)
+  actual_deals   Float   @default(0)
+  currency       String  @default("USD")
+  notes          String?
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([school_id])
+  @@index([sales_rep_email])
+  @@map("crm_sales_targets")
+}
+
+// ---------------------------------------------------------------------------
+// Platform / Super Admin
+// Onboarding invitations for *new* schools (distinct from person-level
+// Invitation, which requires an existing school), plus a singleton config row.
+// ---------------------------------------------------------------------------
+model SchoolInvitation {
+  id           String    @id @default(cuid())
+  school_name  String
+  code         String?
+  city         String?
+  state        String?
+  admin_name   String?
+  admin_email  String
+  admin_phone  String?
+  plan         String    @default("basic") // trial | basic | premium | enterprise
+  status       String    @default("sent") // sent | pending | accepted | revoked | expired
+  invite_token String    @default(cuid())
+  invited_by   String?
+  accepted_at  DateTime?
+  school_id    String? // set once accepted → the provisioned school
+  notes        String?
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@index([status])
+  @@index([admin_email])
+  @@index([invite_token])
+  @@map("school_invitations")
+}
+
+model PlatformConfig {
+  id                String  @id @default("platform") // singleton row
+  platform_name     String  @default("School Guardian")
+  support_email     String  @default("support@schoolguardian.ng")
+  default_plan      String  @default("basic")
+  trial_days        Int     @default(14)
+  attendance_cutoff String  @default("08:15")
+  allow_self_signup Boolean @default(false)
+  maintenance_mode  Boolean @default(false)
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+
+  @@map("platform_config")
+}
