@@ -89,8 +89,19 @@ export function buildOpenApiSpec() {
         '**Functions:** the scheduler can call `/functions/*` without a user token by ' +
         'sending the `x-cron-secret` header instead.',
     },
+    // Default the docs (incl. the Integrations upload/email endpoints) to the
+    // live production origin so "Try it out" never falls back to localhost.
+    // The configured PUBLIC_URL wins when it is a real https origin; localhost
+    // is offered only as a secondary option for local development.
     servers: [
-      { url: env.publicUrl || 'http://localhost:4000', description: 'Configured server' },
+      {
+        url:
+          env.publicUrl && env.publicUrl.startsWith('https')
+            ? env.publicUrl
+            : 'https://schoolgate-guardian-backend.onrender.com',
+        description: 'Production (live)',
+      },
+      { url: 'http://localhost:4000', description: 'Local development' },
     ],
     tags: [
       { name: 'Health', description: 'Service status' },
