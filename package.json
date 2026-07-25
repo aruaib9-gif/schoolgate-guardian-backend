@@ -13,7 +13,8 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:validate": "prisma validate",
     "db:push": "prisma db push",
-    "seed": "node prisma/seed.js"
+    "seed": "node prisma/seed.js",
+    "seed:demo": "node prisma/seed-demo.js && node prisma/seed-demo-extras.js"
   },
   "engines": {
     "node": ">=18.17"
