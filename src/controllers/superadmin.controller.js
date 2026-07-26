@@ -8,7 +8,7 @@
  */
 import { prisma } from '../lib/prisma.js';
 import { PLANS, planById, BILLING_MODES, BILLING_CYCLES, BILLING_DEFAULTS } from '../lib/plans.js';
-import { PLAN_ENTITLEMENTS, FEATURES, LIMIT_KEYS } from '../lib/entitlements.js';
+import { PLAN_ENTITLEMENTS, FEATURES, LIMIT_KEYS, snapshotFor } from '../lib/entitlements.js';
 import {
   listSchoolsWithAggregates, buildOverview, buildSeries,
   getKpisFrom, planDistributionFrom, stateBreakdownFrom, topSchoolsFrom, colorForIndex,
@@ -146,6 +146,9 @@ export async function createSchool(req, res) {
     const cfg = await ensureConfig();
     data.trial_ends_at = new Date(Date.now() + (cfg.trial_days || 14) * 86400000);
   }
+  // Lock in what the plan includes today, so later catalog edits don't change
+  // this school's terms without an explicit re-sync.
+  data.entitlement_snapshot = snapshotFor(data.subscription_plan);
 
   // Ensure a unique code.
   let base = data.code, n = 1;
@@ -189,6 +192,9 @@ export async function updateSchool(req, res) {
   if (!existing) throw notFound('School not found');
   const data = await stampLifecycle(toSchoolData(req.body || {}), existing);
   const planChanged = data.subscription_plan && data.subscription_plan !== existing.subscription_plan;
+  // Moving plan is a new agreement — take a fresh snapshot of the new plan's
+  // current terms (rather than carrying the old plan's grandfathered set).
+  if (planChanged) data.entitlement_snapshot = snapshotFor(data.subscription_plan);
   const school = await prisma.school.update({ where: { id: req.params.id }, data });
   if (planChanged) {
     await platformAudit(req, { type: 'plan_changed', title: `${school.name} plan changed`, detail: `${planById(existing.subscription_plan).name} → ${planById(school.subscription_plan).name}`, color: 'violet' });
@@ -208,6 +214,29 @@ export async function setStatus(req, res) {
   if (status === 'suspended') await platformAudit(req, { type: 'school_suspended', title: `${school.name} suspended`, detail: 'Access disabled by super admin', color: 'red' });
   else if (status === 'active') await platformAudit(req, { type: 'school_activated', title: `${school.name} reactivated`, detail: 'Access restored', color: 'green' });
   emitEntityEvent('School', 'update', school.id, school.id);
+  const all = await listSchoolsWithAggregates();
+  res.json(all.find((s) => s.id === school.id));
+}
+
+/**
+ * POST /schools/:id/resync-entitlements — move a grandfathered school onto the
+ * plan's current terms. Explicit by design: catalog edits never do this
+ * silently. Per-school overrides are left untouched.
+ */
+export async function resyncEntitlements(req, res) {
+  const existing = await prisma.school.findUnique({ where: { id: req.params.id } });
+  if (!existing) throw notFound('School not found');
+  const snapshot = snapshotFor(existing.subscription_plan);
+  const school = await prisma.school.update({
+    where: { id: req.params.id },
+    data: { entitlement_snapshot: snapshot },
+  });
+  await platformAudit(req, {
+    type: 'plan_changed',
+    title: `${school.name} entitlements re-synced`,
+    detail: `Now on current ${planById(school.subscription_plan).name} terms`,
+    color: 'violet',
+  });
   const all = await listSchoolsWithAggregates();
   res.json(all.find((s) => s.id === school.id));
 }
@@ -257,6 +286,7 @@ export async function acceptInvitation(req, res) {
       name: inv.school_name, code, city: inv.city, state: inv.state,
       admin_name: inv.admin_name, admin_email: inv.admin_email, admin_phone: inv.admin_phone,
       subscription_plan: inv.plan, status: 'active', created_by: req.user?.email,
+      entitlement_snapshot: snapshotFor(inv.plan),
     },
   });
   await provisionAdmin(school);

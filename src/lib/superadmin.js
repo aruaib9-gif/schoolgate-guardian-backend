@@ -96,6 +96,7 @@ function decorate(school, counts, i, config = {}) {
     suspended_at: school.suspended_at || null,
     feature_overrides: school.feature_overrides || null,
     limit_overrides: school.limit_overrides || null,
+    entitlement_snapshot: school.entitlement_snapshot || null,
     entitlements: serializeEntitlements(school),
   };
 }

@@ -76,14 +76,45 @@ const planKey = (school) => {
   return PLAN_ENTITLEMENTS[p] ? p : 'trial';
 };
 
+/** Capture what a plan includes right now — stored on the school at signup. */
+export function snapshotFor(plan) {
+  const key = PLAN_ENTITLEMENTS[plan] ? plan : 'trial';
+  const base = PLAN_ENTITLEMENTS[key];
+  return {
+    plan: key,
+    features: [...base.features],
+    limits: { ...base.limits },
+    taken_at: new Date().toISOString(),
+  };
+}
+
+/** Is the school's snapshot out of step with the current plan catalog? */
+export function isGrandfathered(school = {}) {
+  const snap = school.entitlement_snapshot;
+  if (!snap || !Array.isArray(snap.features)) return false;
+  const current = PLAN_ENTITLEMENTS[planKey(school)];
+  if (!current) return false;
+  const a = [...snap.features].sort().join(',');
+  const b = [...current.features].sort().join(',');
+  if (a !== b) return true;
+  return LIMIT_KEYS.some((k) => (snap.limits?.[k] ?? null) !== (current.limits[k] ?? null));
+}
+
 /**
- * Resolve a school's effective entitlements: plan defaults + per-school
- * overrides. `feature_overrides` may grant (true) or revoke (false) any
- * feature; `limit_overrides` replaces a cap (null = unlimited).
+ * Resolve a school's effective entitlements.
+ *
+ * Order: the signup snapshot (if present) — so changing the plan catalog never
+ * silently alters an existing school — then per-school overrides on top.
+ * `feature_overrides` may grant (true) or revoke (false) any feature;
+ * `limit_overrides` replaces a cap (null = unlimited).
  */
 export function entitlements(school = {}) {
   const key = planKey(school);
-  const base = PLAN_ENTITLEMENTS[key];
+  const snap = school.entitlement_snapshot;
+  const base =
+    snap && Array.isArray(snap.features)
+      ? { features: snap.features, limits: snap.limits || {} }
+      : PLAN_ENTITLEMENTS[key];
 
   const features = new Set(base.features);
   const fo = school.feature_overrides;
@@ -163,5 +194,8 @@ export function serializeEntitlements(school) {
     features: [...e.features],
     limits: e.limits,
     catalog: FEATURES.map((f) => ({ ...f, enabled: e.features.has(f.id) })),
+    // True when the school is held to older plan terms than the live catalog.
+    grandfathered: isGrandfathered(school),
+    snapshot_at: school?.entitlement_snapshot?.taken_at || null,
   };
 }

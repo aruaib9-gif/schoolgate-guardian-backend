@@ -93,6 +93,10 @@ model School {
   suspended_at      DateTime? // start of the read-only grace window
   feature_overrides Json?     // { bus: true, crm: false } — grant/revoke per school
   limit_overrides   Json?     // { people: 5000, gates: null } — null = unlimited
+  // What the plan included when this school signed up (or last changed plan).
+  // Grandfathering: later edits to the plan catalog don't silently change what
+  // an existing school gets. { plan, features[], limits{}, taken_at }
+  entitlement_snapshot Json?
 
   created_date DateTime @default(now())
   updated_date DateTime @updatedAt
