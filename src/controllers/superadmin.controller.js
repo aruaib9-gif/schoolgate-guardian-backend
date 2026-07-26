@@ -160,10 +160,34 @@ export async function createSchool(req, res) {
   res.status(201).json(all.find((s) => s.id === school.id));
 }
 
+/**
+ * Keep the lifecycle dates the access guard reads in step with `status`.
+ * Applied on every status change (edit form *and* the status endpoint) so a
+ * trial always has a deadline and suspension always has a grace start.
+ */
+async function stampLifecycle(data, existing) {
+  const status = data.status;
+  if (!status || status === existing.status) return data;
+  if (status === 'suspended' || status === 'inactive') {
+    if (!existing.suspended_at) data.suspended_at = new Date();
+  } else {
+    data.suspended_at = null;
+  }
+  if (status === 'trial') {
+    if (!existing.trial_ends_at && !data.trial_ends_at) {
+      const cfg = await ensureConfig();
+      data.trial_ends_at = new Date(Date.now() + (cfg.trial_days || 14) * 86400000);
+    }
+  } else if (status === 'active') {
+    data.trial_ends_at = null; // paying now — no deadline
+  }
+  return data;
+}
+
 export async function updateSchool(req, res) {
   const existing = await prisma.school.findUnique({ where: { id: req.params.id } });
   if (!existing) throw notFound('School not found');
-  const data = toSchoolData(req.body || {});
+  const data = await stampLifecycle(toSchoolData(req.body || {}), existing);
   const planChanged = data.subscription_plan && data.subscription_plan !== existing.subscription_plan;
   const school = await prisma.school.update({ where: { id: req.params.id }, data });
   if (planChanged) {
@@ -179,18 +203,7 @@ export async function setStatus(req, res) {
   if (!['active', 'trial', 'suspended', 'inactive'].includes(status)) throw badRequest('Invalid status');
   const existing = await prisma.school.findUnique({ where: { id: req.params.id } });
   if (!existing) throw notFound('School not found');
-  // Stamp the lifecycle dates the access guard reads: suspending starts the
-  // read-only grace window; reactivating clears it.
-  const data = { status };
-  if (status === 'suspended' || status === 'inactive') {
-    if (!existing.suspended_at) data.suspended_at = new Date();
-  } else {
-    data.suspended_at = null;
-  }
-  if (status === 'trial' && !existing.trial_ends_at) {
-    const cfg = await ensureConfig();
-    data.trial_ends_at = new Date(Date.now() + (cfg.trial_days || 14) * 86400000);
-  }
+  const data = await stampLifecycle({ status }, existing);
   const school = await prisma.school.update({ where: { id: req.params.id }, data });
   if (status === 'suspended') await platformAudit(req, { type: 'school_suspended', title: `${school.name} suspended`, detail: 'Access disabled by super admin', color: 'red' });
   else if (status === 'active') await platformAudit(req, { type: 'school_activated', title: `${school.name} reactivated`, detail: 'Access restored', color: 'green' });
