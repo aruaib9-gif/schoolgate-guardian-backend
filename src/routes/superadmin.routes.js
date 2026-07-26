@@ -17,6 +17,7 @@ router.use(requireAuth, requireSuperAdmin);
 router.get('/overview', asyncHandler(sa.overview));
 router.get('/series', asyncHandler(sa.series));
 router.get('/plans', asyncHandler(sa.plans));
+router.get('/billing-options', asyncHandler(sa.billingOptions));
 router.get('/audit', asyncHandler(sa.auditFeed));
 
 // Platform config

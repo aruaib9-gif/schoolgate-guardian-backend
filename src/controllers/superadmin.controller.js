@@ -7,7 +7,7 @@
  * are what the schools' admins read/write through the main app.
  */
 import { prisma } from '../lib/prisma.js';
-import { PLANS, planById } from '../lib/plans.js';
+import { PLANS, planById, BILLING_MODES, BILLING_CYCLES, BILLING_DEFAULTS } from '../lib/plans.js';
 import {
   listSchoolsWithAggregates, buildOverview, buildSeries,
   getKpisFrom, planDistributionFrom, stateBreakdownFrom, topSchoolsFrom, colorForIndex,
@@ -60,6 +60,12 @@ function toSchoolData(body = {}) {
   if (body.students !== undefined) d.students = Number(body.students) || 0;
   if (body.staff !== undefined) d.staff = Number(body.staff) || 0;
   if (body.gates !== undefined) d.gates = Number(body.gates) || 0;
+  // Billing overrides. Empty string / null clears the override (inherit default).
+  const blank = (v) => v === '' || v === null;
+  if (body.billing_mode !== undefined) d.billing_mode = blank(body.billing_mode) ? null : String(body.billing_mode);
+  if (body.billing_cycle !== undefined) d.billing_cycle = blank(body.billing_cycle) ? null : String(body.billing_cycle);
+  if (body.unit_price !== undefined) d.unit_price = blank(body.unit_price) ? null : Number(body.unit_price) || 0;
+  if (body.custom_price !== undefined) d.custom_price = blank(body.custom_price) ? null : Number(body.custom_price) || 0;
   return d;
 }
 
@@ -93,6 +99,11 @@ export async function series(_req, res) {
 }
 export function plans(_req, res) {
   res.json(PLANS);
+}
+
+// Billing catalog: plans + the available modes/cycles the console offers.
+export function billingOptions(_req, res) {
+  res.json({ plans: PLANS, modes: BILLING_MODES, cycles: BILLING_CYCLES, defaults: BILLING_DEFAULTS });
 }
 
 // ---------------------------------------------------------------------------
@@ -246,8 +257,13 @@ export async function updateConfig(req, res) {
   await ensureConfig();
   const b = req.body || {};
   const data = {};
-  for (const k of ['platform_name', 'support_email', 'default_plan', 'attendance_cutoff']) if (b[k] !== undefined) data[k] = String(b[k]);
+  for (const k of ['platform_name', 'support_email', 'default_plan', 'attendance_cutoff', 'billing_mode', 'billing_cycle', 'currency']) {
+    if (b[k] !== undefined) data[k] = String(b[k]);
+  }
   if (b.trial_days !== undefined) data.trial_days = Number(b.trial_days) || 0;
+  for (const k of ['termly_discount', 'annual_discount']) {
+    if (b[k] !== undefined) data[k] = Math.max(0, Math.min(100, Number(b[k]) || 0));
+  }
   for (const k of ['allow_self_signup', 'maintenance_mode']) if (b[k] !== undefined) data[k] = !!b[k];
   const cfg = await prisma.platformConfig.update({ where: { id: PLATFORM_CONFIG_ID }, data });
   await platformAudit(req, { type: 'config_changed', title: 'Platform settings updated', detail: Object.keys(data).join(', '), color: 'amber' });

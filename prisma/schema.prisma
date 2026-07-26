@@ -82,6 +82,12 @@ model School {
   staff        Int?
   gates        Int?
 
+  // --- billing overrides (null = inherit the platform default) ---
+  billing_mode  String? // flat | per_student | per_person
+  billing_cycle String? // monthly | termly (3 months) | annual
+  unit_price    Float?  // per-head price when billed per_student / per_person
+  custom_price  Float?  // negotiated flat price, overrides the plan price
+
   created_date DateTime @default(now())
   updated_date DateTime @updatedAt
   created_by   String?
@@ -737,6 +743,13 @@ model PlatformConfig {
   attendance_cutoff String  @default("08:15")
   allow_self_signup Boolean @default(false)
   maintenance_mode  Boolean @default(false)
+
+  // --- billing defaults (schools inherit these unless they override) ---
+  billing_mode     String @default("flat")    // flat | per_student | per_person
+  billing_cycle    String @default("monthly") // monthly | termly (3 months) | annual
+  termly_discount  Float  @default(5)         // % off when billed per term
+  annual_discount  Float  @default(15)        // % off when billed annually
+  currency         String @default("NGN")
 
   created_date DateTime @default(now())
   updated_date DateTime @updatedAt
