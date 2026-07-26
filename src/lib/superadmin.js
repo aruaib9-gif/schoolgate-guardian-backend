@@ -8,6 +8,7 @@
  */
 import { prisma } from './prisma.js';
 import { PLANS, planPrice, computeCharge } from './plans.js';
+import { serializeEntitlements } from './entitlements.js';
 
 // Platform billing defaults (singleton row); schools inherit these.
 export async function getBillingConfig() {
@@ -90,6 +91,12 @@ function decorate(school, counts, i, config = {}) {
     unit_price: school.unit_price ?? null,
     custom_price: school.custom_price ?? null,
     billing,
+    // --- entitlements (plan capabilities + per-school overrides) ---
+    trial_ends_at: school.trial_ends_at || null,
+    suspended_at: school.suspended_at || null,
+    feature_overrides: school.feature_overrides || null,
+    limit_overrides: school.limit_overrides || null,
+    entitlements: serializeEntitlements(school),
   };
 }
 

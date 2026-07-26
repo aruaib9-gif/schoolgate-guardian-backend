@@ -6,7 +6,40 @@ import { applyTenantScope, stampTenantOnCreate } from '../lib/tenant.js';
 import { hashPassword } from '../lib/auth.js';
 import { writeAudit } from '../lib/audit.js';
 import { emitEntityEvent } from '../lib/realtime.js';
-import { badRequest, notFound } from '../middleware/error.js';
+import { badRequest, notFound, paymentRequired } from '../middleware/error.js';
+import { checkLimit, upgradeForLimit } from '../lib/entitlements.js';
+
+// Which entities consume a numeric plan quota.
+const QUOTA_FOR = { Person: 'people' };
+
+/**
+ * Block a create that would exceed the school's plan cap.
+ * Existing records are never touched — only new ones are refused — and the
+ * response carries the numbers so the UI can prompt a specific upgrade.
+ */
+async function assertQuota(req, meta, adding = 1) {
+  const key = QUOTA_FOR[meta.name];
+  if (!key || !req.school) return;
+
+  const used = await prisma.person.count({ where: { school_id: req.school.id } });
+  const check = checkLimit(req.school, key, used + adding - 1);
+  if (check.unlimited || check.ok) {
+    // Surface an early warning so the client can nudge before the wall.
+    if (check.warn) req.quotaWarning = { limit: key, ...check };
+    return;
+  }
+  throw paymentRequired(
+    `Your ${req.school.subscription_plan} plan is limited to ${check.cap} ${key}.`,
+    {
+      reason: 'limit_reached',
+      limit: key,
+      cap: check.cap,
+      used,
+      current_plan: req.school.subscription_plan,
+      upgrade_to: upgradeForLimit(key, used + adding),
+    }
+  );
+}
 
 // Resolve :entity into req.entityMeta or 404.
 export function loadEntity(req, res, next) {
@@ -91,6 +124,7 @@ export async function getOne(req, res) {
 export async function create(req, res) {
   const meta = req.entityMeta;
   await assertPermission(req, meta, 'create');
+  await assertQuota(req, meta, 1);
   let data = coerceInput(meta, req.body, { isCreate: true });
   data = await handleUserSecrets(meta, data, req.body);
   data = stampTenantOnCreate(req, meta, data);
@@ -106,6 +140,8 @@ export async function create(req, res) {
       after: serialize(meta, record),
     });
   }
+  // 90%-of-cap nudge travels with the successful response.
+  if (req.quotaWarning) res.set('X-Quota-Warning', JSON.stringify(req.quotaWarning));
   res.status(201).json(serialize(meta, record));
 }
 
@@ -115,6 +151,7 @@ export async function bulkCreate(req, res) {
   await assertPermission(req, meta, 'create');
   const input = Array.isArray(req.body) ? req.body : req.body?.records;
   if (!Array.isArray(input)) throw badRequest('Bulk create expects an array of records');
+  await assertQuota(req, meta, input.length);
   const created = [];
   for (const item of input) {
     let data = coerceInput(meta, item, { isCreate: true });

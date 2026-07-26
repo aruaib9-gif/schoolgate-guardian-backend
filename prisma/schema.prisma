@@ -88,6 +88,12 @@ model School {
   unit_price    Float?  // per-head price when billed per_student / per_person
   custom_price  Float?  // negotiated flat price, overrides the plan price
 
+  // --- entitlements / lifecycle ---
+  trial_ends_at     DateTime? // when a `trial` school loses access
+  suspended_at      DateTime? // start of the read-only grace window
+  feature_overrides Json?     // { bus: true, crm: false } — grant/revoke per school
+  limit_overrides   Json?     // { people: 5000, gates: null } — null = unlimited
+
   created_date DateTime @default(now())
   updated_date DateTime @updatedAt
   created_by   String?

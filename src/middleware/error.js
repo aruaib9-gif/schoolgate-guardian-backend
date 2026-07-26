@@ -12,6 +12,8 @@ export const notFound = (msg = 'Not found') => new ApiError(404, msg);
 export const badRequest = (msg = 'Bad request', extra) => new ApiError(400, msg, extra);
 export const unauthorized = (msg = 'Authentication required') => new ApiError(401, msg);
 export const forbidden = (msg = 'Forbidden', extra) => new ApiError(403, msg, extra);
+// 402 — the request is valid but the school's plan/subscription doesn't cover it.
+export const paymentRequired = (msg = 'Upgrade required', extra) => new ApiError(402, msg, extra);
 
 // Wrap an async route handler so thrown/rejected errors reach the error handler.
 export const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);

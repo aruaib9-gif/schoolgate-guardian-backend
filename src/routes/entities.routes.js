@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
+import { loadSchool, requireEntityFeature } from '../middleware/subscription.js';
 import { asyncHandler } from '../middleware/error.js';
 import {
   loadEntity,
@@ -18,7 +19,11 @@ import {
 const router = Router();
 
 router.use(requireAuth);
+// Resolve the caller's school, enforce suspension/trial expiry, then gate the
+// entity behind the plan feature it belongs to (e.g. SchoolBus needs `bus`).
+router.use(asyncHandler(loadSchool));
 router.param('entity', loadEntity);
+router.use('/:entity', requireEntityFeature);
 
 router.get('/:entity', asyncHandler(list));
 router.post('/:entity/query', asyncHandler(query));

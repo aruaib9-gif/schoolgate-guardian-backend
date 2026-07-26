@@ -8,6 +8,7 @@
  */
 import { prisma } from '../lib/prisma.js';
 import { PLANS, planById, BILLING_MODES, BILLING_CYCLES, BILLING_DEFAULTS } from '../lib/plans.js';
+import { PLAN_ENTITLEMENTS, FEATURES, LIMIT_KEYS } from '../lib/entitlements.js';
 import {
   listSchoolsWithAggregates, buildOverview, buildSeries,
   getKpisFrom, planDistributionFrom, stateBreakdownFrom, topSchoolsFrom, colorForIndex,
@@ -66,6 +67,10 @@ function toSchoolData(body = {}) {
   if (body.billing_cycle !== undefined) d.billing_cycle = blank(body.billing_cycle) ? null : String(body.billing_cycle);
   if (body.unit_price !== undefined) d.unit_price = blank(body.unit_price) ? null : Number(body.unit_price) || 0;
   if (body.custom_price !== undefined) d.custom_price = blank(body.custom_price) ? null : Number(body.custom_price) || 0;
+  // Entitlement overrides: {feature: true|false} / {people: n|null}
+  if (body.feature_overrides !== undefined) d.feature_overrides = body.feature_overrides || null;
+  if (body.limit_overrides !== undefined) d.limit_overrides = body.limit_overrides || null;
+  if (body.trial_ends_at !== undefined) d.trial_ends_at = body.trial_ends_at ? new Date(body.trial_ends_at) : null;
   return d;
 }
 
@@ -101,9 +106,17 @@ export function plans(_req, res) {
   res.json(PLANS);
 }
 
-// Billing catalog: plans + the available modes/cycles the console offers.
+// Billing + entitlement catalog for the console: plans, modes, cycles, and
+// which capabilities/limits each plan unlocks.
 export function billingOptions(_req, res) {
-  res.json({ plans: PLANS, modes: BILLING_MODES, cycles: BILLING_CYCLES, defaults: BILLING_DEFAULTS });
+  res.json({
+    plans: PLANS.map((p) => ({ ...p, entitlements: PLAN_ENTITLEMENTS[p.id] || null })),
+    modes: BILLING_MODES,
+    cycles: BILLING_CYCLES,
+    defaults: BILLING_DEFAULTS,
+    features: FEATURES,
+    limitKeys: LIMIT_KEYS,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +141,11 @@ export async function createSchool(req, res) {
   if (!data.subscription_plan) data.subscription_plan = 'basic';
   if (!data.status) data.status = 'active';
   data.created_by = req.user?.email;
+  // A school starting on trial gets a deadline from the configured trial length.
+  if (data.status === 'trial' && !data.trial_ends_at) {
+    const cfg = await ensureConfig();
+    data.trial_ends_at = new Date(Date.now() + (cfg.trial_days || 14) * 86400000);
+  }
 
   // Ensure a unique code.
   let base = data.code, n = 1;
@@ -161,7 +179,19 @@ export async function setStatus(req, res) {
   if (!['active', 'trial', 'suspended', 'inactive'].includes(status)) throw badRequest('Invalid status');
   const existing = await prisma.school.findUnique({ where: { id: req.params.id } });
   if (!existing) throw notFound('School not found');
-  const school = await prisma.school.update({ where: { id: req.params.id }, data: { status } });
+  // Stamp the lifecycle dates the access guard reads: suspending starts the
+  // read-only grace window; reactivating clears it.
+  const data = { status };
+  if (status === 'suspended' || status === 'inactive') {
+    if (!existing.suspended_at) data.suspended_at = new Date();
+  } else {
+    data.suspended_at = null;
+  }
+  if (status === 'trial' && !existing.trial_ends_at) {
+    const cfg = await ensureConfig();
+    data.trial_ends_at = new Date(Date.now() + (cfg.trial_days || 14) * 86400000);
+  }
+  const school = await prisma.school.update({ where: { id: req.params.id }, data });
   if (status === 'suspended') await platformAudit(req, { type: 'school_suspended', title: `${school.name} suspended`, detail: 'Access disabled by super admin', color: 'red' });
   else if (status === 'active') await platformAudit(req, { type: 'school_activated', title: `${school.name} reactivated`, detail: 'Access restored', color: 'green' });
   emitEntityEvent('School', 'update', school.id, school.id);

@@ -5,6 +5,7 @@ import { hashPassword, verifyPassword, signToken, sanitizeUser } from '../lib/au
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler, badRequest, unauthorized, ApiError } from '../middleware/error.js';
 import { writeAudit } from '../lib/audit.js';
+import { serializeEntitlements } from '../lib/entitlements.js';
 
 const router = Router();
 
@@ -68,11 +69,27 @@ router.post(
 );
 
 // GET /auth/me — current user (equivalent to base44.auth.me)
+// Includes the school's resolved plan entitlements so clients can hide or lock
+// features instead of letting the user hit a 402.
 router.get(
   '/me',
   requireAuth,
   asyncHandler(async (req, res) => {
-    res.json(sanitizeUser(req.user));
+    const me = sanitizeUser(req.user);
+    if (req.user.school_id) {
+      const school = await prisma.school.findUnique({ where: { id: req.user.school_id } });
+      if (school) {
+        me.school = {
+          id: school.id,
+          name: school.name,
+          plan: school.subscription_plan,
+          status: school.status,
+          trial_ends_at: school.trial_ends_at,
+        };
+        me.entitlements = serializeEntitlements(school);
+      }
+    }
+    res.json(me);
   })
 );
 
