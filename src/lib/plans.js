@@ -52,7 +52,10 @@ export const planPrice = (id) => planById(id).price;
 export const cycleById = (id) => BILLING_CYCLES.find((c) => c.id === id) || BILLING_CYCLES[0];
 export const modeById = (id) => BILLING_MODES.find((m) => m.id === id) || BILLING_MODES[0];
 
-const n = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
+// Coerce to a number, treating null/undefined/'' as "not set" so an absent
+// override falls back to the default (Number(null) is 0, which would not).
+const n = (v, d = 0) =>
+  v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? d : Number(v);
 
 /** Discount % for a cycle, honouring platform config overrides. */
 export function discountFor(cycleId, config = {}) {
