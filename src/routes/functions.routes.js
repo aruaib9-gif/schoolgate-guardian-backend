@@ -5,6 +5,7 @@ import { crmFollowUpReminders } from '../functions/crmFollowUpReminders.js';
 import { crmStageEmailSequence } from '../functions/crmStageEmailSequence.js';
 import { notifyBusEvent } from '../functions/notifyBusEvent.js';
 import { sendAbsenceReport } from '../functions/sendAbsenceReport.js';
+import { notifySubscriptions } from '../functions/notifySubscriptions.js';
 
 // Registry of callable server functions (ports of the original serverless fns).
 const FUNCTIONS = {
@@ -12,6 +13,7 @@ const FUNCTIONS = {
   crmStageEmailSequence: (payload) => crmStageEmailSequence(payload),
   notifyBusEvent: (payload) => notifyBusEvent(payload),
   sendAbsenceReport: (payload) => sendAbsenceReport(payload || {}),
+  notifySubscriptions: () => notifySubscriptions(),
 };
 
 const router = Router();

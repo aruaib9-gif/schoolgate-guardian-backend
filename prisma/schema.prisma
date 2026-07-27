@@ -766,3 +766,24 @@ model PlatformConfig {
 
   @@map("platform_config")
 }
+
+/// One-time links emailed to users: set your password (invite) or reset it.
+/// Only a SHA-256 hash of the token is stored, so a database leak can't be
+/// replayed — the raw token exists solely in the recipient's email.
+model AuthToken {
+  id         String    @id @default(cuid())
+  token_hash String    @unique
+  purpose    String // invite | reset
+  user_id    String
+  email      String
+  expires_at DateTime
+  used_at    DateTime?
+  created_by String?
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+
+  @@index([user_id])
+  @@index([email])
+  @@map("auth_tokens")
+}

@@ -6,6 +6,9 @@ import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler, badRequest, unauthorized, ApiError } from '../middleware/error.js';
 import { writeAudit } from '../lib/audit.js';
 import { serializeEntitlements } from '../lib/entitlements.js';
+import { issueToken, peekToken, consumeToken, linkFor } from '../lib/authTokens.js';
+import { sendEmail } from '../lib/email.js';
+import { passwordReset } from '../lib/emailTemplates.js';
 
 const router = Router();
 
@@ -127,6 +130,97 @@ router.post(
     const password_hash = await hashPassword(new_password);
     await prisma.user.update({ where: { id: req.user.id }, data: { password_hash } });
     res.json({ success: true });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Password setup / recovery via one-time emailed links
+// ---------------------------------------------------------------------------
+
+// GET /auth/invite/:token — let the web app show who the link is for before
+// asking for a password. Public: the token itself is the credential.
+router.get(
+  '/invite/:token',
+  asyncHandler(async (req, res) => {
+    const row = (await peekToken(req.params.token, 'invite')) || (await peekToken(req.params.token, 'reset'));
+    if (!row) throw new ApiError(410, 'This link is invalid, already used, or has expired');
+    const user = await prisma.user.findUnique({ where: { id: row.user_id } });
+    if (!user) throw new ApiError(410, 'This link is no longer valid');
+    let school = null;
+    if (user.school_id) {
+      const s = await prisma.school.findUnique({ where: { id: user.school_id } });
+      school = s ? { id: s.id, name: s.name } : null;
+    }
+    res.json({
+      valid: true,
+      purpose: row.purpose,
+      email: user.email,
+      full_name: user.full_name,
+      school,
+      expires_at: row.expires_at,
+    });
+  })
+);
+
+// Shared handler: consume a one-time token and set the account's password.
+const setPasswordWithToken = (purpose) =>
+  asyncHandler(async (req, res) => {
+    const { token, password } = req.body || {};
+    if (!token) throw badRequest('token is required');
+    if (!password || password.length < 8) throw badRequest('Password must be at least 8 characters');
+
+    const row = await consumeToken(token, purpose);
+    if (!row) throw new ApiError(410, 'This link is invalid, already used, or has expired');
+
+    const user = await prisma.user.update({
+      where: { id: row.user_id },
+      data: {
+        password_hash: await hashPassword(password),
+        profile_completed: true,
+        is_active: true,
+        last_login: new Date(),
+      },
+    });
+
+    await writeAudit(
+      { user, role: user.user_category || user.role },
+      {
+        action: 'update',
+        entity_type: 'User',
+        entity_id: user.id,
+        description: purpose === 'reset' ? `${user.email} reset their password` : `${user.email} set their password`,
+      }
+    );
+
+    // Sign them straight in — they just proved control of the mailbox.
+    res.json({ token: signToken(user), user: sanitizeUser(user) });
+  });
+
+// POST /auth/accept-invite  { token, password } — finish onboarding.
+router.post('/accept-invite', setPasswordWithToken('invite'));
+
+// POST /auth/reset-password { token, password } — complete a reset.
+router.post('/reset-password', setPasswordWithToken('reset'));
+
+// POST /auth/forgot-password { email }
+// Always answers 200 with the same body: revealing whether an address exists
+// would let anyone enumerate the platform's users.
+router.post(
+  '/forgot-password',
+  asyncHandler(async (req, res) => {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const generic = { success: true, message: 'If that email is registered, a reset link is on its way.' };
+    if (!email) return res.json(generic);
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user || user.is_active === false) return res.json(generic);
+
+    const { token, expires_at } = await issueToken({ user, purpose: 'reset' });
+    const link = linkFor('reset', token);
+    const mail = passwordReset({ name: user.full_name, email: user.email, link, expiresAt: expires_at });
+    await sendEmail({ to: user.email, from_name: 'School Guardian', ...mail });
+
+    res.json(generic);
   })
 );
 

@@ -19,6 +19,15 @@ export const env = {
   publicUrl: (process.env.PUBLIC_URL || `http://localhost:${num(process.env.PORT, 4000)}`).replace(/\/$/, ''),
   maxUploadMb: num(process.env.MAX_UPLOAD_MB, 10),
 
+  // Email transport: 'resend' | 'smtp' | 'console'. Auto-detected when unset.
+  emailProvider: process.env.EMAIL_PROVIDER || '',
+  resendApiKey: process.env.RESEND_API_KEY || '',
+  // Where emailed links point — the web app, not the API. Falls back to PUBLIC_URL.
+  appUrl: (process.env.APP_URL || process.env.PUBLIC_URL || `http://localhost:${num(process.env.PORT, 4000)}`).replace(/\/$/, ''),
+  // How long a set-password / reset link stays valid.
+  inviteTtlDays: num(process.env.INVITE_TTL_DAYS, 7),
+  resetTtlHours: num(process.env.RESET_TTL_HOURS, 2),
+
   smtp: {
     host: process.env.SMTP_HOST || '',
     port: num(process.env.SMTP_PORT, 587),

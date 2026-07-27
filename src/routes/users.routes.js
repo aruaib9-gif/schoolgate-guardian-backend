@@ -4,6 +4,8 @@ import { prisma } from '../lib/prisma.js';
 import { requireAuth, ADMIN_ROLES } from '../middleware/auth.js';
 import { asyncHandler, badRequest, forbidden } from '../middleware/error.js';
 import { sendEmail } from '../lib/email.js';
+import { welcomeInvite } from '../lib/emailTemplates.js';
+import { issueToken, linkFor } from '../lib/authTokens.js';
 import { writeAudit } from '../lib/audit.js';
 import { env } from '../config/env.js';
 
@@ -58,21 +60,41 @@ router.post(
       },
     });
 
-    const inviteLink = `${env.publicUrl}/invite/accept?token=${invite_token}`;
-    const emailResult = await sendEmail({
-      to: b.email,
-      subject: `You've been invited to ${school_name || 'SchoolGate Guardian'}`,
-      body: [
-        `Hello${b.first_name ? ' ' + b.first_name : ''},`,
-        '',
-        `You have been invited to join ${school_name || 'SchoolGate Guardian'}${b.role ? ' as ' + b.role : ''}.`,
-        '',
-        `Accept your invitation here: ${inviteLink}`,
-        '',
-        `This link expires on ${expires_at.toDateString()}.`,
-      ].join('\n'),
-      from_name: 'SchoolGate Guardian',
+    // Create (or reuse) the login this invite is for, then issue a one-time
+    // set-password token. Previously the email carried a link nothing could
+    // consume, so invited staff could never actually get in.
+    const full_name = [b.first_name, b.last_name].filter(Boolean).join(' ') || null;
+    let user = await prisma.user.findUnique({ where: { email: b.email } });
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          email: b.email,
+          full_name,
+          role: 'user',
+          user_category: b.role || 'staff',
+          school_id: school_id || undefined,
+          is_active: true,
+          profile_completed: false,
+          created_by: req.user.email,
+        },
+      });
+    }
+
+    const { token: setupToken, expires_at: linkExpires } = await issueToken({
+      user, purpose: 'invite', createdBy: req.user.email,
     });
+    const inviteLink = linkFor('invite', setupToken);
+
+    const mail = welcomeInvite({
+      name: full_name,
+      email: b.email,
+      link: inviteLink,
+      expiresAt: linkExpires,
+      schoolName: school_name,
+      roleLabel: b.role,
+      invitedBy: req.user.full_name || req.user.email,
+    });
+    const emailResult = await sendEmail({ to: b.email, from_name: 'School Guardian', ...mail });
 
     await writeAudit(req, {
       action: 'create',

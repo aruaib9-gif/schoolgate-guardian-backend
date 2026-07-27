@@ -15,6 +15,9 @@ import {
 } from '../lib/superadmin.js';
 import { badRequest, notFound } from '../middleware/error.js';
 import { emitEntityEvent } from '../lib/realtime.js';
+import { issueToken, linkFor } from '../lib/authTokens.js';
+import { sendEmail } from '../lib/email.js';
+import { welcomeInvite } from '../lib/emailTemplates.js';
 
 const PLATFORM_CONFIG_ID = 'platform';
 const codeFrom = (name) => (name || 'SCH').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'SCH';
@@ -74,23 +77,42 @@ function toSchoolData(body = {}) {
   return d;
 }
 
-// Ensure a school administrator User account exists (onboards the admin).
-async function provisionAdmin(school) {
-  if (!school.admin_email) return;
-  const existing = await prisma.user.findUnique({ where: { email: school.admin_email } });
-  if (existing) return;
-  await prisma.user.create({
-    data: {
-      email: school.admin_email,
-      full_name: school.admin_name || null,
-      role: 'admin',
-      user_category: 'admin',
-      school_id: school.id,
-      is_active: true,
-      profile_completed: false, // completes on first login / password set
-      created_by: 'superadmin',
-    },
+/**
+ * Ensure a school administrator User exists and can actually get in: the
+ * account is created without a password and a one-time "set your password"
+ * link is emailed. Returns the send result so callers can surface it.
+ */
+async function provisionAdmin(school, actorEmail) {
+  if (!school.admin_email) return null;
+  let user = await prisma.user.findUnique({ where: { email: school.admin_email } });
+  if (!user) {
+    user = await prisma.user.create({
+      data: {
+        email: school.admin_email,
+        full_name: school.admin_name || null,
+        role: 'admin',
+        user_category: 'admin',
+        school_id: school.id,
+        is_active: true,
+        profile_completed: false, // completes when they set a password
+        created_by: 'superadmin',
+      },
+    });
+  } else if (user.password_hash) {
+    return null; // already has a working login — don't email them again
+  }
+
+  const { token, expires_at } = await issueToken({ user, purpose: 'invite', createdBy: actorEmail });
+  const mail = welcomeInvite({
+    name: user.full_name,
+    email: user.email,
+    link: linkFor('invite', token),
+    expiresAt: expires_at,
+    schoolName: school.name,
+    roleLabel: 'School Administrator',
+    invitedBy: actorEmail,
   });
+  return sendEmail({ to: user.email, from_name: 'School Guardian', ...mail });
 }
 
 // ---------------------------------------------------------------------------
@@ -155,7 +177,7 @@ export async function createSchool(req, res) {
   while (await prisma.school.findUnique({ where: { code: data.code } })) data.code = `${base}${n++}`;
 
   const school = await prisma.school.create({ data });
-  await provisionAdmin(school);
+  await provisionAdmin(school, req.user?.email);
   await platformAudit(req, { type: 'school_created', title: `${school.name} onboarded`, detail: `${school.admin_name || 'Admin'} · ${planById(school.subscription_plan).name} plan`, color: 'green' });
   emitEntityEvent('School', 'create', school.id, school.id);
 
@@ -241,6 +263,42 @@ export async function resyncEntitlements(req, res) {
   res.json(all.find((s) => s.id === school.id));
 }
 
+/**
+ * POST /schools/:id/resend-invite — re-send the school admin's set-password
+ * link (new token; any previous one stops working).
+ */
+export async function resendAdminInvite(req, res) {
+  const school = await prisma.school.findUnique({ where: { id: req.params.id } });
+  if (!school) throw notFound('School not found');
+  if (!school.admin_email) throw badRequest('This school has no administrator email');
+
+  const user = await prisma.user.findUnique({ where: { email: school.admin_email } });
+  // Force a fresh link even if they already have a password (they asked for it).
+  const target = user || (await prisma.user.create({
+    data: {
+      email: school.admin_email, full_name: school.admin_name || null,
+      role: 'admin', user_category: 'admin', school_id: school.id,
+      is_active: true, profile_completed: false, created_by: req.user?.email,
+    },
+  }));
+
+  const { token, expires_at } = await issueToken({ user: target, purpose: 'invite', createdBy: req.user?.email });
+  const mail = welcomeInvite({
+    name: target.full_name, email: target.email, link: linkFor('invite', token),
+    expiresAt: expires_at, schoolName: school.name,
+    roleLabel: 'School Administrator', invitedBy: req.user?.email,
+  });
+  const result = await sendEmail({ to: target.email, from_name: 'School Guardian', ...mail });
+
+  await platformAudit(req, {
+    type: 'admin_invited',
+    title: `Credentials re-sent to ${school.name}`,
+    detail: `${target.email} · expires ${expires_at.toDateString()}`,
+    color: 'blue',
+  });
+  res.json({ success: true, email: target.email, expires_at, delivery: result });
+}
+
 export async function deleteSchool(req, res) {
   const existing = await prisma.school.findUnique({ where: { id: req.params.id } });
   if (!existing) throw notFound('School not found');
@@ -289,7 +347,7 @@ export async function acceptInvitation(req, res) {
       entitlement_snapshot: snapshotFor(inv.plan),
     },
   });
-  await provisionAdmin(school);
+  await provisionAdmin(school, req.user?.email);
   await prisma.schoolInvitation.update({ where: { id: inv.id }, data: { status: 'accepted', accepted_at: new Date(), school_id: school.id } });
   await platformAudit(req, { type: 'school_created', title: `${school.name} onboarded`, detail: `Activated from invitation · ${planById(school.subscription_plan).name}`, color: 'green' });
   emitEntityEvent('School', 'create', school.id, school.id);

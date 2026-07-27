@@ -226,6 +226,99 @@ export function buildOpenApiSpec() {
           responses: { 200: ok('Logged out', ref('SuccessResponse')), ...authErr },
         },
       },
+      '/auth/invite/{token}': {
+        get: {
+          tags: ['Auth'],
+          summary: 'Validate a set-password / reset link (public)',
+          description: 'Lets the web app show who the link belongs to before asking for a password.',
+          security: [],
+          parameters: [{ name: 'token', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: ok('Link is valid', {
+              type: 'object',
+              properties: {
+                valid: { type: 'boolean' },
+                purpose: { type: 'string', enum: ['invite', 'reset'] },
+                email: { type: 'string' },
+                full_name: { type: 'string' },
+                school: { type: 'object' },
+                expires_at: { type: 'string', format: 'date-time' },
+              },
+            }),
+            410: ok('Invalid, already used, or expired', ref('Error')),
+          },
+        },
+      },
+      '/auth/accept-invite': {
+        post: {
+          tags: ['Auth'],
+          summary: 'Set your password from an invite link, and sign in',
+          security: [],
+          requestBody: {
+            required: true,
+            content: json({
+              type: 'object',
+              required: ['token', 'password'],
+              properties: { token: { type: 'string' }, password: { type: 'string', minLength: 8 } },
+            }),
+          },
+          responses: {
+            200: ok('Password set — signed in', ref('AuthResponse')),
+            400: errorRef,
+            410: ok('Link invalid or expired', ref('Error')),
+          },
+        },
+      },
+      '/auth/forgot-password': {
+        post: {
+          tags: ['Auth'],
+          summary: 'Request a password reset link',
+          description: 'Always returns 200 with the same message — the API never reveals whether an address is registered.',
+          security: [],
+          requestBody: {
+            required: true,
+            content: json({ type: 'object', required: ['email'], properties: { email: { type: 'string', format: 'email' } } }),
+          },
+          responses: { 200: ok('Accepted', ref('SuccessResponse')) },
+        },
+      },
+      '/auth/reset-password': {
+        post: {
+          tags: ['Auth'],
+          summary: 'Complete a password reset, and sign in',
+          security: [],
+          requestBody: {
+            required: true,
+            content: json({
+              type: 'object',
+              required: ['token', 'password'],
+              properties: { token: { type: 'string' }, password: { type: 'string', minLength: 8 } },
+            }),
+          },
+          responses: {
+            200: ok('Password reset — signed in', ref('AuthResponse')),
+            400: errorRef,
+            410: ok('Link invalid or expired', ref('Error')),
+          },
+        },
+      },
+      '/api/superadmin/schools/{id}/resend-invite': {
+        parameters: [saIdParam],
+        post: {
+          tags: ['Super Admin'],
+          summary: "Re-send the school admin's set-password link",
+          responses: {
+            200: ok('Sent', {
+              type: 'object',
+              properties: {
+                success: { type: 'boolean' }, email: { type: 'string' },
+                expires_at: { type: 'string', format: 'date-time' }, delivery: { type: 'object' },
+              },
+            }),
+            400: errorRef, ...authErr, ...forbiddenErr,
+          },
+        },
+      },
       '/auth/change-password': {
         post: {
           tags: ['Auth'],
