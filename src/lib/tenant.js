@@ -9,12 +9,18 @@ const CROSS_TENANT_ROLES = new Set(['superadmin', 'head_of_schools']);
  * to their own school_id when they have one.
  */
 export function applyTenantScope(req, meta, where = {}) {
-  if (!meta.hasSchoolId) return where;
   const role = req.role;
   if (req.isService) return where;
   if (CROSS_TENANT_ROLES.has(role)) return where;
   const schoolId = req.user?.school_id;
   if (!schoolId) return where; // user has no school yet — no extra constraint
+
+  // A School row carries no school_id — its own id IS the tenant key. Without
+  // this it fell through the hasSchoolId check below, so any school admin
+  // could list every school on the platform.
+  if (meta.name === 'School') return { ...where, id: schoolId };
+
+  if (!meta.hasSchoolId) return where;
   // If the caller already filtered by a different school, keep the intersection
   // (their own school wins for isolation).
   return { ...where, school_id: schoolId };

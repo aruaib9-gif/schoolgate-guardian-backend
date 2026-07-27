@@ -117,6 +117,8 @@ export async function getOne(req, res) {
   if (scoped.school_id && record.school_id && record.school_id !== scoped.school_id) {
     throw notFound(`${meta.name} not found`);
   }
+  // School is scoped by its own id (it has no school_id column).
+  if (scoped.id && record.id !== scoped.id) throw notFound(`${meta.name} not found`);
   res.json(serialize(meta, record));
 }
 
@@ -172,6 +174,8 @@ async function fetchScopedOr404(req, meta) {
   if (scoped.school_id && existing.school_id && existing.school_id !== scoped.school_id) {
     throw notFound(`${meta.name} not found`);
   }
+  // School is scoped by its own id (it has no school_id column).
+  if (scoped.id && existing.id !== scoped.id) throw notFound(`${meta.name} not found`);
   return existing;
 }
 
