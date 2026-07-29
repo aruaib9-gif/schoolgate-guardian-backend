@@ -10,12 +10,18 @@
 #   npm run seed
 #
 # Values marked `sync: false` are secrets you type into the Render dashboard.
+#
+# ⚠️  PRODUCTION: both plans below are `free` for evaluation. Free Render
+# databases ARE DELETED after ~90 days (with their data), and free web
+# services sleep between requests. Change both to `starter` or higher before
+# real schools depend on this. Uploaded files also need persistent storage
+# (Render Disk or S3) — the container filesystem is wiped on every deploy.
 # ---------------------------------------------------------------------------
 databases:
   - name: schoolgate-db
     databaseName: schoolgate
     user: schoolgate
-    plan: free # change to `starter` (or higher) for production; free DBs expire
+    plan: free # ⚠️ free DBs expire after ~90 days — use `starter`+ in production
 
 services:
   - type: web
@@ -60,7 +66,18 @@ services:
       # Shared secret for scheduler/cron calls to /functions/*.
       - key: CRON_SECRET
         generateValue: true
-      # Email (SMTP). Optional — if unset, emails are logged instead of sent.
+      # Email. Optional — if nothing below is set, emails are logged instead of
+      # sent. Resend is preferred; the SMTP block is the fallback transport.
+      # See EMAIL_SETUP.md.
+      # Leave unset to auto-detect (Resend if a key is present, else SMTP,
+      # else console). Set to resend|smtp|console to force one.
+      - key: EMAIL_PROVIDER
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      # Where emailed invite / reset links point — the WEB APP, not this API.
+      - key: APP_URL
+        sync: false
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT

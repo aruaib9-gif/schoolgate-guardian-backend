@@ -43,4 +43,38 @@ export const env = {
   },
 
   cronSecret: process.env.CRON_SECRET || '',
+
+  // Open self-registration is a dev/demo convenience. In production it must be
+  // opted into explicitly — see the guard below and /auth/register.
+  allowSelfSignup: bool(process.env.ALLOW_SELF_SIGNUP, process.env.NODE_ENV !== 'production'),
 };
+
+/**
+ * Refuse to boot with a configuration that is known-unsafe in production.
+ * Every check here corresponds to a real foot-gun: dev defaults that are fine
+ * locally but, left in place on a public deployment, hand out access.
+ */
+if (env.nodeEnv === 'production') {
+  const fatal = [];
+  if (!process.env.JWT_SECRET || env.jwtSecret === 'dev-insecure-secret-change-me') {
+    fatal.push('JWT_SECRET is unset or still the dev default — every token would be forgeable.');
+  } else if (env.jwtSecret.length < 32) {
+    fatal.push('JWT_SECRET is shorter than 32 characters — use a long random value.');
+  }
+  if (!env.cronSecret) {
+    fatal.push('CRON_SECRET is unset — /functions/* scheduled endpoints would be weakly protected.');
+  }
+  if (env.corsOrigin.includes('*')) {
+    fatal.push('CORS_ORIGIN contains "*" — set the explicit web app origin(s), comma-separated.');
+  }
+  if (!env.publicUrl.startsWith('https://')) {
+    fatal.push(`PUBLIC_URL "${env.publicUrl}" is not https — file links would be served over http.`);
+  }
+  if (env.seed.superadminPassword === 'ChangeMe123!') {
+    fatal.push('SEED_SUPERADMIN_PASSWORD is still the example value.');
+  }
+  if (fatal.length) {
+    console.error('Refusing to start: unsafe production configuration.\n' + fatal.map((m) => `  - ${m}`).join('\n'));
+    process.exit(1);
+  }
+}

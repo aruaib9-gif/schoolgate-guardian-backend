@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { env } from '../config/env.js';
 import { hashPassword, verifyPassword, signToken, sanitizeUser } from '../lib/auth.js';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler, badRequest, unauthorized, ApiError } from '../middleware/error.js';
@@ -12,38 +13,43 @@ import { passwordReset } from '../lib/emailTemplates.js';
 
 const router = Router();
 
+// Deliberately excludes role / user_category / school_id: privileges are never
+// self-assigned. Admins and superadmins are provisioned via the superadmin
+// routes; parents/staff get linked to a Person by an admin, not by themselves.
 const registerSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(6),
+  password: z.string().min(8),
   full_name: z.string().optional(),
-  role: z.string().optional(),
-  school_id: z.string().optional(),
-  person_id: z.string().optional(),
-  user_category: z.string().optional(),
 });
 
-// POST /auth/register — create an account. First account overall becomes admin.
+// POST /auth/register — create a plain user account.
+// Bootstrap exception: the very first account in an empty database becomes the
+// superadmin, so a fresh install is claimable. After that, this endpoint only
+// exists when ALLOW_SELF_SIGNUP is on (default: on in dev, off in production).
 router.post(
   '/register',
   asyncHandler(async (req, res) => {
     const parsed = registerSchema.safeParse(req.body);
     if (!parsed.success) throw badRequest('Invalid registration payload', parsed.error.flatten());
-    const { email, password, ...rest } = parsed.data;
+    const { email, password, full_name } = parsed.data;
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) throw new ApiError(409, 'An account with this email already exists');
 
     const userCount = await prisma.user.count();
+    const isBootstrap = userCount === 0;
+    if (!isBootstrap && !env.allowSelfSignup) {
+      throw new ApiError(403, 'Self-registration is disabled. Ask your school admin for an invite.');
+    }
+
     const password_hash = await hashPassword(password);
     const user = await prisma.user.create({
       data: {
         email,
         password_hash,
-        role: rest.role || (userCount === 0 ? 'admin' : 'user'),
-        user_category: rest.user_category || (userCount === 0 ? 'superadmin' : undefined),
-        full_name: rest.full_name,
-        school_id: rest.school_id,
-        person_id: rest.person_id,
+        role: isBootstrap ? 'admin' : 'user',
+        user_category: isBootstrap ? 'superadmin' : undefined,
+        full_name,
         last_login: new Date(),
         created_by: email,
       },

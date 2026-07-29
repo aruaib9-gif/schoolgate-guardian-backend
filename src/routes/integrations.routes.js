@@ -25,7 +25,34 @@ const storage = multer.diskStorage({
     cb(null, `${Date.now()}-${nanoid(8)}-${base}${ext}`);
   },
 });
-const upload = multer({ storage, limits: { fileSize: env.maxUploadMb * 1024 * 1024 } });
+// Allowlist, not blocklist. Notably absent: SVG and HTML — both execute script
+// when served inline from /uploads, which would be stored XSS on our origin.
+const ALLOWED_UPLOADS = new Map([
+  ['image/jpeg', ['.jpg', '.jpeg']],
+  ['image/png', ['.png']],
+  ['image/webp', ['.webp']],
+  ['image/gif', ['.gif']],
+  ['image/heic', ['.heic']],
+  ['application/pdf', ['.pdf']],
+]);
+
+const upload = multer({
+  storage,
+  limits: { fileSize: env.maxUploadMb * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowedExts = ALLOWED_UPLOADS.get(file.mimetype);
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (!allowedExts) {
+      return cb(badRequest(`Unsupported file type "${file.mimetype}". Allowed: images (jpeg/png/webp/gif/heic) and PDF.`));
+    }
+    // Extension must agree with the declared type so a .html can't sneak in
+    // under an image/* label and be served with a script-running extension.
+    if (!allowedExts.includes(ext)) {
+      return cb(badRequest(`File extension "${ext}" does not match type "${file.mimetype}".`));
+    }
+    cb(null, true);
+  },
+});
 
 // POST /integrations/upload  (multipart, field name "file")
 // Mirrors integrations.Core.UploadFile -> returns { file_url }.
