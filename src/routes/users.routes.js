@@ -73,11 +73,15 @@ router.post(
           role: 'user',
           user_category: b.role || 'staff',
           school_id: school_id || undefined,
+          // Link the login to its Person record so scans/attendance resolve.
+          person_id: b.person_id || undefined,
           is_active: true,
           profile_completed: false,
           created_by: req.user.email,
         },
       });
+    } else if (b.person_id && !user.person_id) {
+      user = await prisma.user.update({ where: { id: user.id }, data: { person_id: b.person_id } });
     }
 
     const { token: setupToken, expires_at: linkExpires } = await issueToken({
