@@ -8,6 +8,10 @@
 import { env } from '../config/env.js';
 
 const BRAND = 'School Guardian';
+// Served by the web app (superadmin dist includes logo-192.png). The 192px
+// file rendered at 34px stays crisp on retina screens. Clients that block
+// remote images fall back to the alt text + the brand name beside it.
+const LOGO_URL = `${env.appUrl}/logo-192.png`;
 const esc = (s = '') =>
   String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -18,8 +22,13 @@ function layout({ heading, intro, cta, link, footnote, outro }) {
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f7fb;padding:32px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
     <tr><td align="center">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04),0 8px 24px rgba(15,23,42,.06);">
-        <tr><td style="background:linear-gradient(135deg,#4f46e5,#7c3aed);padding:24px 28px;">
-          <div style="color:#fff;font-size:17px;font-weight:800;letter-spacing:-.01em;">${BRAND}</div>
+        <tr><td style="background:linear-gradient(135deg,#4f46e5,#7c3aed);padding:20px 28px;">
+          <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+            <td style="background:#ffffff;border-radius:10px;padding:5px;line-height:0;">
+              <img src="${LOGO_URL}" width="34" height="34" alt="${BRAND}" style="display:block;border:0;" />
+            </td>
+            <td style="padding-left:12px;color:#fff;font-size:17px;font-weight:800;letter-spacing:-.01em;">${BRAND}</td>
+          </tr></table>
         </td></tr>
         <tr><td style="padding:28px;">
           <h1 style="margin:0 0 12px;font-size:20px;font-weight:800;color:#0f172a;">${heading}</h1>
