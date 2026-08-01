@@ -16,7 +16,7 @@ const esc = (s = '') =>
   String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /** Shared shell: keeps every email visually consistent and mobile-friendly. */
-function layout({ heading, intro, cta, link, footnote, outro }) {
+function layout({ heading, intro, beforeCta, cta, link, footnote, outro }) {
   return `<!doctype html>
 <html><body style="margin:0;padding:0;background:#f6f7fb;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f7fb;padding:32px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
@@ -33,6 +33,7 @@ function layout({ heading, intro, cta, link, footnote, outro }) {
         <tr><td style="padding:28px;">
           <h1 style="margin:0 0 12px;font-size:20px;font-weight:800;color:#0f172a;">${heading}</h1>
           <p style="margin:0 0 20px;font-size:14.5px;line-height:1.6;color:#475569;">${intro}</p>
+          ${beforeCta || ''}
           ${cta && link ? `
           <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
             <tr><td style="border-radius:11px;background:#4f46e5;">
@@ -56,28 +57,45 @@ function layout({ heading, intro, cta, link, footnote, outro }) {
 const expiryPhrase = (d) =>
   `This link expires on ${new Date(d).toUTCString().replace(/ GMT$/, ' UTC')} and can only be used once.`;
 
-/** New account: choose a password. Used for school admins and invited staff. */
-export function welcomeInvite({ name, email, link, expiresAt, schoolName, roleLabel, invitedBy }) {
+/** New account: choose a password. Used for school admins and invited staff.
+ *  With `tempPassword` set, the email also carries sign-in credentials so the
+ *  person can log in immediately; the link lets them replace the temporary
+ *  password with their own. */
+export function welcomeInvite({ name, email, link, expiresAt, schoolName, roleLabel, invitedBy, tempPassword }) {
   const who = name ? name.split(' ')[0] : 'there';
   const where = schoolName ? ` for <strong>${esc(schoolName)}</strong>` : '';
   const asRole = roleLabel ? ` as <strong>${esc(roleLabel)}</strong>` : '';
   const by = invitedBy ? ` by ${esc(invitedBy)}` : '';
+
+  const credsHtml = tempPassword ? `
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;background:#f6f7fb;border:1px solid #e6e8f0;border-radius:12px;">
+            <tr><td style="padding:16px 18px;">
+              <div style="font-size:12px;font-weight:700;letter-spacing:.06em;color:#94a3b8;text-transform:uppercase;">Your sign-in details</div>
+              <div style="margin-top:10px;font-size:14px;color:#0f172a;">Username: <strong>${esc(email)}</strong></div>
+              <div style="margin-top:4px;font-size:14px;color:#0f172a;">Temporary password: <strong style="font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.04em;">${esc(tempPassword)}</strong></div>
+            </td></tr>
+          </table>` : '';
+
   return {
     subject: schoolName ? `Set up your ${schoolName} account` : `Set up your ${BRAND} account`,
     body: [
       `Hi ${who},`, '',
       `An account has been created for you${schoolName ? ` for ${schoolName}` : ''}${roleLabel ? ` as ${roleLabel}` : ''}${invitedBy ? ` by ${invitedBy}` : ''}.`,
-      `Your sign-in email is: ${email}`, '',
-      'Choose your password here:', link, '',
+      `Your sign-in email is: ${email}`,
+      ...(tempPassword ? [`Your temporary password is: ${tempPassword}`] : []), '',
+      tempPassword ? 'Change your temporary password here:' : 'Choose your password here:', link, '',
       expiryPhrase(expiresAt).replace(/<[^>]+>/g, ''), '',
       `— ${BRAND}`,
     ].join('\n'),
     html: layout({
       heading: `Welcome, ${esc(who)} 👋`,
-      intro: `An account has been created for you${where}${asRole}${by}. Choose a password to get started — your sign-in email is <strong>${esc(email)}</strong>.`,
-      cta: 'Set your password',
+      intro: `An account has been created for you${where}${asRole}${by}.${tempPassword
+        ? ' You can sign in right away with the details below — then use the button to replace the temporary password with your own.'
+        : ` Choose a password to get started — your sign-in email is <strong>${esc(email)}</strong>.`}`,
+      beforeCta: credsHtml,
+      cta: tempPassword ? 'Change your password' : 'Set your password',
       link,
-      footnote: `${expiryPhrase(expiresAt)} For your security we never send passwords by email.`,
+      footnote: `${expiryPhrase(expiresAt)}${tempPassword ? ' Please change the temporary password after your first sign-in.' : ' For your security we never send passwords by email.'}`,
     }),
   };
 }

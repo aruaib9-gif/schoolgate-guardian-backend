@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { nanoid } from 'nanoid';
+import { randomBytes } from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
+import { hashPassword } from '../lib/auth.js';
 import { requireAuth, ADMIN_ROLES } from '../middleware/auth.js';
 import { asyncHandler, badRequest, forbidden } from '../middleware/error.js';
 import { sendEmail } from '../lib/email.js';
@@ -65,11 +67,17 @@ router.post(
     // consume, so invited staff could never actually get in.
     const full_name = [b.first_name, b.last_name].filter(Boolean).join(' ') || null;
     let user = await prisma.user.findUnique({ where: { email: b.email } });
+    // New accounts get a temporary password so they can sign in from the
+    // email immediately; the set-password link lets them replace it. Existing
+    // accounts keep their password — we never overwrite one.
+    let tempPassword = null;
     if (!user) {
+      tempPassword = randomBytes(6).toString('base64url'); // 8 chars, no shell/url-hostile chars
       user = await prisma.user.create({
         data: {
           email: b.email,
           full_name,
+          password_hash: await hashPassword(tempPassword),
           role: 'user',
           user_category: b.role || 'staff',
           school_id: school_id || undefined,
@@ -97,6 +105,7 @@ router.post(
       schoolName: school_name,
       roleLabel: b.role,
       invitedBy: req.user.full_name || req.user.email,
+      tempPassword,
     });
     const emailResult = await sendEmail({ to: b.email, from_name: 'School Guardian', ...mail });
 
