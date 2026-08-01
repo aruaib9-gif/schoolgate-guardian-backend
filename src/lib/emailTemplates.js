@@ -61,11 +61,9 @@ const expiryPhrase = (d) =>
  *  With `tempPassword` set, the email also carries sign-in credentials so the
  *  person can log in immediately; the link lets them replace the temporary
  *  password with their own. */
-export function welcomeInvite({ name, email, link, expiresAt, schoolName, roleLabel, invitedBy, tempPassword }) {
+export function welcomeInvite({ name, email, link, expiresAt, schoolName, tempPassword }) {
   const who = name ? name.split(' ')[0] : 'there';
   const where = schoolName ? ` for <strong>${esc(schoolName)}</strong>` : '';
-  const asRole = roleLabel ? ` as <strong>${esc(roleLabel)}</strong>` : '';
-  const by = invitedBy ? ` by ${esc(invitedBy)}` : '';
 
   const credsHtml = tempPassword ? `
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;background:#f6f7fb;border:1px solid #e6e8f0;border-radius:12px;">
@@ -80,7 +78,7 @@ export function welcomeInvite({ name, email, link, expiresAt, schoolName, roleLa
     subject: schoolName ? `Set up your ${schoolName} account` : `Set up your ${BRAND} account`,
     body: [
       `Hi ${who},`, '',
-      `An account has been created for you${schoolName ? ` for ${schoolName}` : ''}${roleLabel ? ` as ${roleLabel}` : ''}${invitedBy ? ` by ${invitedBy}` : ''}.`,
+      `An account has been created for you${schoolName ? ` for ${schoolName}` : ''}.`,
       `Your sign-in email is: ${email}`,
       ...(tempPassword ? [`Your temporary password is: ${tempPassword}`] : []), '',
       tempPassword ? 'Change your temporary password here:' : 'Choose your password here:', link, '',
@@ -89,7 +87,7 @@ export function welcomeInvite({ name, email, link, expiresAt, schoolName, roleLa
     ].join('\n'),
     html: layout({
       heading: `Welcome, ${esc(who)} 👋`,
-      intro: `An account has been created for you${where}${asRole}${by}.${tempPassword
+      intro: `An account has been created for you${where}.${tempPassword
         ? ' You can sign in right away with the details below — then use the button to replace the temporary password with your own.'
         : ` Choose a password to get started — your sign-in email is <strong>${esc(email)}</strong>.`}`,
       beforeCta: credsHtml,
