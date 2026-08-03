@@ -21,9 +21,37 @@ export function applyTenantScope(req, meta, where = {}) {
   if (meta.name === 'School') return { ...where, id: schoolId };
 
   if (!meta.hasSchoolId) return where;
+
+  // Role definitions: a school sees the platform defaults (school_id null)
+  // alongside its own overrides — the defaults are what an admin customises
+  // FROM, so they must stay readable.
+  if (meta.name === 'RolePermissions') {
+    return { ...where, OR: [{ school_id: schoolId }, { school_id: null }] };
+  }
+
   // If the caller already filtered by a different school, keep the intersection
   // (their own school wins for isolation).
   return { ...where, school_id: schoolId };
+}
+
+/**
+ * Guard for reads/mutations of a single record by a school-scoped user.
+ * Returns null when allowed, 'notfound' when the record belongs to another
+ * school, or 'forbidden' when it is a shared platform default that scoped
+ * users may read but never modify.
+ */
+export function tenantBlock(req, meta, existing, { forWrite = false } = {}) {
+  if (req.isService || CROSS_TENANT_ROLES.has(req.role)) return null;
+  const schoolId = req.user?.school_id;
+  if (!schoolId) return null;
+  if (meta.name === 'School') return existing.id === schoolId ? null : 'notfound';
+  if (!meta.hasSchoolId) return null;
+  if (existing.school_id && existing.school_id !== schoolId) return 'notfound';
+  // Global RolePermissions rows are the platform-wide defaults. Editing one
+  // would change every school at once — school admins must create their own
+  // school-scoped override instead (the mobile app does this automatically).
+  if (forWrite && meta.name === 'RolePermissions' && !existing.school_id) return 'forbidden';
+  return null;
 }
 
 /**

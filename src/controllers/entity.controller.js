@@ -2,11 +2,11 @@ import { prisma } from '../lib/prisma.js';
 import { resolveEntity, coerceInput } from '../lib/registry.js';
 import { buildWhere, buildOrderBy, parsePaging } from '../lib/query.js';
 import { assertPermission } from '../lib/permissions.js';
-import { applyTenantScope, stampTenantOnCreate } from '../lib/tenant.js';
+import { applyTenantScope, stampTenantOnCreate, tenantBlock } from '../lib/tenant.js';
 import { hashPassword } from '../lib/auth.js';
 import { writeAudit } from '../lib/audit.js';
 import { emitEntityEvent } from '../lib/realtime.js';
-import { badRequest, notFound, paymentRequired } from '../middleware/error.js';
+import { badRequest, notFound, forbidden, paymentRequired } from '../middleware/error.js';
 import { checkLimit, upgradeForLimit } from '../lib/entitlements.js';
 
 // Which entities consume a numeric plan quota.
@@ -112,13 +112,7 @@ export async function getOne(req, res) {
   await assertPermission(req, meta, 'read');
   const record = await delegate(meta).findUnique({ where: { id: req.params.id } });
   if (!record) throw notFound(`${meta.name} not found`);
-  // Tenant check
-  const scoped = applyTenantScope(req, meta, {});
-  if (scoped.school_id && record.school_id && record.school_id !== scoped.school_id) {
-    throw notFound(`${meta.name} not found`);
-  }
-  // School is scoped by its own id (it has no school_id column).
-  if (scoped.id && record.id !== scoped.id) throw notFound(`${meta.name} not found`);
+  if (tenantBlock(req, meta, record)) throw notFound(`${meta.name} not found`);
   res.json(serialize(meta, record));
 }
 
@@ -170,12 +164,11 @@ export async function bulkCreate(req, res) {
 async function fetchScopedOr404(req, meta) {
   const existing = await delegate(meta).findUnique({ where: { id: req.params.id } });
   if (!existing) throw notFound(`${meta.name} not found`);
-  const scoped = applyTenantScope(req, meta, {});
-  if (scoped.school_id && existing.school_id && existing.school_id !== scoped.school_id) {
-    throw notFound(`${meta.name} not found`);
+  const block = tenantBlock(req, meta, existing, { forWrite: true });
+  if (block === 'notfound') throw notFound(`${meta.name} not found`);
+  if (block === 'forbidden') {
+    throw forbidden('This is a platform-wide default. Save your changes as a school-specific override instead.');
   }
-  // School is scoped by its own id (it has no school_id column).
-  if (scoped.id && existing.id !== scoped.id) throw notFound(`${meta.name} not found`);
   return existing;
 }
 
