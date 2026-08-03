@@ -17,6 +17,7 @@ import integrationRoutes from './routes/integrations.routes.js';
 import functionRoutes from './routes/functions.routes.js';
 import userRoutes from './routes/users.routes.js';
 import superadminRoutes from './routes/superadmin.routes.js';
+import qrRoutes from './routes/qr.routes.js';
 
 export function createApp() {
   const app = express();
@@ -104,6 +105,7 @@ export function createApp() {
   app.use('/integrations', integrationRoutes);
   app.use('/functions', functionRoutes);
   app.use('/users', userRoutes);
+  app.use('/qr', apiLimiter, qrRoutes);
 
   // 404 + error handling
   app.use((req, _res, next) => next(notFound(`No route for ${req.method} ${req.path}`)));
