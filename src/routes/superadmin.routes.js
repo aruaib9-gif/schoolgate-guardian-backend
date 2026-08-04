@@ -33,6 +33,7 @@ router.put('/schools/:id', asyncHandler(sa.updateSchool));
 router.post('/schools/:id/status', asyncHandler(sa.setStatus));
 router.post('/schools/:id/resync-entitlements', asyncHandler(sa.resyncEntitlements));
 router.post('/schools/:id/resend-invite', asyncHandler(sa.resendAdminInvite));
+router.post('/schools/:id/invoice', asyncHandler(sa.sendInvoice));
 router.delete('/schools/:id', asyncHandler(sa.deleteSchool));
 
 // Onboarding invitations

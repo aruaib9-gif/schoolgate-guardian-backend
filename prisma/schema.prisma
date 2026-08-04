@@ -787,3 +787,34 @@ model AuthToken {
   @@index([email])
   @@map("auth_tokens")
 }
+
+// A billing invoice for one school and one billing cycle. Amounts are naira
+// (whole ₦, not kobo). Paystack references are stamped when a payment is
+// initialised; the webhook flips status to paid.
+model Invoice {
+  id                String    @id @default(cuid())
+  school_id         String
+  school_name       String?
+  plan              String
+  description       String?
+  amount            Int
+  currency          String    @default("NGN")
+  period_start      DateTime
+  period_end        DateTime
+  months            Int       @default(1)
+  status            String    @default("pending") // pending | paid | void
+  reference         String?   @unique
+  authorization_url String?
+  paid_at           DateTime?
+  paid_channel      String?
+  email_to          String?
+  email_sent        Boolean   @default(false)
+  created_by        String?
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+
+  @@index([school_id])
+  @@index([status])
+  @@map("invoices")
+}

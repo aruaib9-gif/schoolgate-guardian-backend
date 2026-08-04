@@ -7,7 +7,7 @@
  * are what the schools' admins read/write through the main app.
  */
 import { prisma } from '../lib/prisma.js';
-import { PLANS, planById, BILLING_MODES, BILLING_CYCLES, BILLING_DEFAULTS } from '../lib/plans.js';
+import { PLANS, planById, BILLING_MODES, BILLING_CYCLES, BILLING_DEFAULTS, computeCharge } from '../lib/plans.js';
 import { PLAN_ENTITLEMENTS, FEATURES, LIMIT_KEYS, snapshotFor } from '../lib/entitlements.js';
 import {
   listSchoolsWithAggregates, buildOverview, buildSeries,
@@ -17,7 +17,9 @@ import { badRequest, notFound } from '../middleware/error.js';
 import { emitEntityEvent } from '../lib/realtime.js';
 import { issueToken, linkFor } from '../lib/authTokens.js';
 import { sendEmail } from '../lib/email.js';
-import { welcomeInvite } from '../lib/emailTemplates.js';
+import { welcomeInvite, invoiceEmail } from '../lib/emailTemplates.js';
+import { initializeTransaction } from '../lib/paystack.js';
+import { nanoid } from 'nanoid';
 
 const PLATFORM_CONFIG_ID = 'platform';
 const codeFrom = (name) => (name || 'SCH').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'SCH';
@@ -354,6 +356,61 @@ export async function acceptInvitation(req, res) {
 
   const all = await listSchoolsWithAggregates();
   res.status(201).json(all.find((s) => s.id === school.id));
+}
+
+/**
+ * POST /schools/:id/invoice — generate this cycle's invoice, initialise a
+ * Paystack checkout link, and email it to the school administrator.
+ * Optional body: { amount } to override the computed figure (negotiated deals).
+ */
+export async function sendInvoice(req, res) {
+  const school = await prisma.school.findUnique({ where: { id: req.params.id } });
+  if (!school) throw notFound('School not found');
+  if (!school.admin_email) throw badRequest('This school has no administrator email');
+
+  const config = (await prisma.platformConfig.findFirst()) || {};
+  const charge = computeCharge(school, config);
+  const amount = Number.isFinite(Number(req.body?.amount)) && Number(req.body.amount) > 0
+    ? Math.round(Number(req.body.amount))
+    : charge.amount;
+  if (!amount) throw badRequest("Computed amount is \u20a60 \u2014 check the school's plan and billing settings");
+
+  const start = new Date();
+  const end = new Date(start);
+  end.setMonth(end.getMonth() + charge.cycleMonths);
+  const periodLabel = `${start.toLocaleDateString('en-NG', { day: 'numeric', month: 'short' })} \u2013 ${end.toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+
+  const invoice = await prisma.invoice.create({
+    data: {
+      school_id: school.id, school_name: school.name, plan: school.subscription_plan,
+      description: charge.label, amount, months: charge.cycleMonths,
+      period_start: start, period_end: end, email_to: school.admin_email,
+      created_by: req.user?.email,
+    },
+  });
+
+  // Checkout link first so the email can carry a working Pay button.
+  const reference = `sgg_${invoice.id.slice(-8)}_${nanoid(8)}`;
+  const tx = await initializeTransaction({
+    email: school.admin_email, amountNaira: amount, reference,
+    metadata: { invoice_id: invoice.id, school_id: school.id, school_name: school.name },
+  });
+  await prisma.invoice.update({ where: { id: invoice.id }, data: { reference, authorization_url: tx.authorization_url } });
+
+  const mail = invoiceEmail({
+    schoolName: school.name, planName: planById(school.subscription_plan).name,
+    amount, periodLabel, payUrl: tx.authorization_url, invoiceId: invoice.id,
+  });
+  const delivery = await sendEmail({ to: school.admin_email, from_name: 'School Guardian Billing', ...mail });
+  await prisma.invoice.update({ where: { id: invoice.id }, data: { email_sent: !!delivery.delivered } });
+
+  await platformAudit(req, {
+    type: 'invoice_sent',
+    title: `Invoice sent to ${school.name}`,
+    detail: `\u20a6${amount.toLocaleString('en-NG')} \u00b7 ${periodLabel} \u00b7 ${school.admin_email}`,
+    color: 'blue',
+  });
+  res.status(201).json({ invoice: { ...invoice, reference, authorization_url: tx.authorization_url }, delivery });
 }
 
 export async function deleteInvitation(req, res) {

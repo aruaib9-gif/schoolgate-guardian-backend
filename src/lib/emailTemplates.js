@@ -121,6 +121,38 @@ export function passwordReset({ name, email, link, expiresAt }) {
   };
 }
 
+/** Billing invoice with a Pay Now link (Paystack checkout). */
+export function invoiceEmail({ schoolName, planName, amount, currency = 'NGN', periodLabel, payUrl, invoiceId }) {
+  const naira = `₦${Number(amount).toLocaleString('en-NG')}`;
+  const box = `
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;background:#f6f7fb;border:1px solid #e6e8f0;border-radius:12px;">
+            <tr><td style="padding:16px 18px;">
+              <div style="font-size:12px;font-weight:700;letter-spacing:.06em;color:#94a3b8;text-transform:uppercase;">Invoice ${esc(invoiceId ? `#${invoiceId.slice(-8).toUpperCase()}` : '')}</div>
+              <div style="margin-top:10px;font-size:14px;color:#0f172a;">School: <strong>${esc(schoolName)}</strong></div>
+              <div style="margin-top:4px;font-size:14px;color:#0f172a;">Plan: <strong>${esc(planName)}</strong> · ${esc(periodLabel)}</div>
+              <div style="margin-top:10px;font-size:22px;font-weight:800;color:#0f172a;">${esc(naira)}</div>
+            </td></tr>
+          </table>`;
+  return {
+    subject: `${schoolName}: ${planName} subscription invoice — ${naira}`,
+    body: [
+      `Invoice for ${schoolName}`, '',
+      `Plan: ${planName} (${periodLabel})`,
+      `Amount due: ${naira} ${currency}`, '',
+      'Pay securely here:', payUrl, '',
+      `— ${BRAND}`,
+    ].join('\n'),
+    html: layout({
+      heading: 'Your subscription invoice',
+      intro: `Here is the ${esc(planName)} subscription invoice for <strong>${esc(schoolName)}</strong>. Payment is handled securely by Paystack.`,
+      beforeCta: box,
+      cta: 'Pay now',
+      link: payUrl,
+      footnote: 'Questions about this invoice? Just reply to this email.',
+    }),
+  };
+}
+
 /** Trial ending soon. */
 export function trialEnding({ schoolName, daysLeft, planName }) {
   const when = daysLeft <= 0 ? 'today' : daysLeft === 1 ? 'tomorrow' : `in ${daysLeft} days`;

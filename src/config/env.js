@@ -44,6 +44,10 @@ export const env = {
 
   cronSecret: process.env.CRON_SECRET || '',
 
+  // Paystack (billing). Secret key server-side only; public key may be shared
+  // with clients for inline checkout if ever needed.
+  paystackSecretKey: process.env.PAYSTACK_SECRET_KEY || '',
+
   // Open self-registration is a dev/demo convenience. In production it must be
   // opted into explicitly — see the guard below and /auth/register.
   allowSelfSignup: bool(process.env.ALLOW_SELF_SIGNUP, process.env.NODE_ENV !== 'production'),

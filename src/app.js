@@ -18,6 +18,7 @@ import functionRoutes from './routes/functions.routes.js';
 import userRoutes from './routes/users.routes.js';
 import superadminRoutes from './routes/superadmin.routes.js';
 import qrRoutes from './routes/qr.routes.js';
+import billingRoutes, { paystackWebhook } from './routes/billing.routes.js';
 
 export function createApp() {
   const app = express();
@@ -66,6 +67,12 @@ export function createApp() {
   app.use('/auth/forgot-password', authLimiter);
   app.use('/functions', functionsLimiter);
   app.use('/api', apiLimiter);
+  // Paystack signs the RAW request body — this route must see it before the
+  // JSON parser consumes the stream.
+  app.post('/api/billing/paystack/webhook', express.raw({ type: '*/*' }), (req, res, next) => {
+    paystackWebhook(req, res).catch(next);
+  });
+
   app.use(express.json({ limit: '5mb' }));
   app.use(express.urlencoded({ extended: true }));
   if (env.nodeEnv !== 'test') app.use(morgan('dev'));
@@ -106,6 +113,7 @@ export function createApp() {
   app.use('/functions', functionRoutes);
   app.use('/users', userRoutes);
   app.use('/qr', apiLimiter, qrRoutes);
+  app.use('/api/billing', apiLimiter, billingRoutes);
 
   // 404 + error handling
   app.use((req, _res, next) => next(notFound(`No route for ${req.method} ${req.path}`)));
