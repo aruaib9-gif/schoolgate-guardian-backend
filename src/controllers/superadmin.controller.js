@@ -375,6 +375,7 @@ export async function sendInvoice(req, res) {
     : charge.amount;
   if (!amount) throw badRequest("Computed amount is \u20a60 \u2014 check the school's plan and billing settings");
 
+  const mode = req.body?.test ? 'test' : 'live';
   const start = new Date();
   const end = new Date(start);
   end.setMonth(end.getMonth() + charge.cycleMonths);
@@ -383,7 +384,7 @@ export async function sendInvoice(req, res) {
   const invoice = await prisma.invoice.create({
     data: {
       school_id: school.id, school_name: school.name, plan: school.subscription_plan,
-      description: charge.label, amount, months: charge.cycleMonths,
+      description: charge.label, amount, months: charge.cycleMonths, mode,
       period_start: start, period_end: end, email_to: school.admin_email,
       created_by: req.user?.email,
     },
@@ -392,7 +393,7 @@ export async function sendInvoice(req, res) {
   // Checkout link first so the email can carry a working Pay button.
   const reference = `sgg_${invoice.id.slice(-8)}_${nanoid(8)}`;
   const tx = await initializeTransaction({
-    email: school.admin_email, amountNaira: amount, reference,
+    email: school.admin_email, amountNaira: amount, reference, mode,
     metadata: { invoice_id: invoice.id, school_id: school.id, school_name: school.name },
   });
   await prisma.invoice.update({ where: { id: invoice.id }, data: { reference, authorization_url: tx.authorization_url } });
@@ -401,12 +402,13 @@ export async function sendInvoice(req, res) {
     schoolName: school.name, planName: planById(school.subscription_plan).name,
     amount, periodLabel, payUrl: tx.authorization_url, invoiceId: invoice.id,
   });
+  if (mode === 'test') mail.subject = `[TEST — no real charge] ${mail.subject}`;
   const delivery = await sendEmail({ to: school.admin_email, from_name: 'School Guardian Billing', ...mail });
   await prisma.invoice.update({ where: { id: invoice.id }, data: { email_sent: !!delivery.delivered } });
 
   await platformAudit(req, {
     type: 'invoice_sent',
-    title: `Invoice sent to ${school.name}`,
+    title: `${mode === 'test' ? 'Test invoice' : 'Invoice'} sent to ${school.name}`,
     detail: `\u20a6${amount.toLocaleString('en-NG')} \u00b7 ${periodLabel} \u00b7 ${school.admin_email}`,
     color: 'blue',
   });

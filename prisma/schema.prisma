@@ -803,6 +803,7 @@ model Invoice {
   period_end        DateTime
   months            Int       @default(1)
   status            String    @default("pending") // pending | paid | void
+  mode              String    @default("live") // live | test (which Paystack universe)
   reference         String?   @unique
   authorization_url String?
   paid_at           DateTime?

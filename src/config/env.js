@@ -44,9 +44,11 @@ export const env = {
 
   cronSecret: process.env.CRON_SECRET || '',
 
-  // Paystack (billing). Secret key server-side only; public key may be shared
-  // with clients for inline checkout if ever needed.
+  // Paystack (billing). Secret keys server-side only. Live and test can be
+  // configured together: real invoices use the live key, test invoices (an
+  // explicit superadmin choice) use the test key and test cards.
   paystackSecretKey: process.env.PAYSTACK_SECRET_KEY || '',
+  paystackTestSecretKey: process.env.PAYSTACK_TEST_SECRET_KEY || '',
 
   // Open self-registration is a dev/demo convenience. In production it must be
   // opted into explicitly — see the guard below and /auth/register.

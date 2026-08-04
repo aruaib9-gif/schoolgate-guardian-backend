@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { requireAuth, ADMIN_ROLES } from '../middleware/auth.js';
 import { asyncHandler, notFound, forbidden, badRequest } from '../middleware/error.js';
 import { computeCharge, planById, cycleById } from '../lib/plans.js';
-import { initializeTransaction, verifyTransaction, verifyWebhookSignature } from '../lib/paystack.js';
+import { initializeTransaction, verifyTransaction, webhookMode } from '../lib/paystack.js';
 import { writeAudit } from '../lib/audit.js';
 
 const router = Router();
@@ -72,6 +72,7 @@ router.post(
       email: req.user.email,
       amountNaira: invoice.amount,
       reference,
+      mode: invoice.mode || 'live',
       metadata: { invoice_id: invoice.id, school_id: invoice.school_id, school_name: invoice.school_name },
     });
     const updated = await prisma.invoice.update({
@@ -90,9 +91,9 @@ router.post(
  */
 export async function paystackWebhook(req, res) {
   const signature = req.headers['x-paystack-signature'];
-  if (!verifyWebhookSignature(req.body, signature)) {
-    return res.status(401).json({ error: 'Invalid signature' });
-  }
+  // Identifies which universe (live/test) signed the event — or rejects it.
+  const mode = webhookMode(req.body, signature);
+  if (!mode) return res.status(401).json({ error: 'Invalid signature' });
   const event = JSON.parse(req.body.toString('utf8'));
   if (event.event !== 'charge.success') return res.json({ received: true });
 
@@ -100,7 +101,7 @@ export async function paystackWebhook(req, res) {
   const invoice = reference && (await prisma.invoice.findUnique({ where: { reference } }));
   if (!invoice || invoice.status === 'paid') return res.json({ received: true });
 
-  const tx = await verifyTransaction(reference); // belt and braces
+  const tx = await verifyTransaction(reference, mode); // belt and braces
   if (tx.status !== 'success') return res.json({ received: true });
   const paidNaira = Math.round((tx.amount || 0) / 100);
   if (paidNaira < invoice.amount) {
