@@ -109,7 +109,7 @@ router.patch(
   asyncHandler(async (req, res) => {
     const body = req.body || {};
     // Whitelist self-editable fields.
-    const allowed = ['full_name', 'gate_name', 'assigned_bus_id', 'person_id', 'profile_completed'];
+    const allowed = ['full_name', 'gate_name', 'assigned_bus_id', 'person_id', 'profile_completed', 'push_token'];
     const data = {};
     for (const k of allowed) if (k in body) data[k] = body[k];
     if (body.password) data.password_hash = await hashPassword(body.password);

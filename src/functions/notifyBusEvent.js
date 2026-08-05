@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { sendEmail } from '../lib/email.js';
 import { emitEntityEvent } from '../lib/realtime.js';
+import { sendPush, tokensFor } from '../lib/push.js';
 
 // Notify parents when a student boards / is dropped off by the school bus.
 // Payload may be a raw scan log or an automation wrapper { data: scanLog }.
@@ -134,6 +135,15 @@ export async function notifyBusEvent(payload = {}) {
     } catch (e) {
       results.emails.push({ email, error: e.message });
     }
+  }
+
+  // Phones buzz too — parents with the app installed get an instant push.
+  try {
+    const tokens = await tokensFor({ email: { in: [...parentEmails.keys()] } });
+    const push = await sendPush(tokens, { title: subject, body, data: { type: 'bus_event', student_id: student.id } });
+    results.push_sent = push.sent;
+  } catch (e) {
+    results.push_error = e.message;
   }
 
   return {

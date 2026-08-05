@@ -6,6 +6,7 @@ import { applyTenantScope, stampTenantOnCreate, tenantBlock } from '../lib/tenan
 import { hashPassword } from '../lib/auth.js';
 import { writeAudit } from '../lib/audit.js';
 import { emitEntityEvent } from '../lib/realtime.js';
+import { notifyMessagePush } from '../lib/push.js';
 import { badRequest, notFound, forbidden, paymentRequired } from '../middleware/error.js';
 import { checkLimit, upgradeForLimit } from '../lib/entitlements.js';
 
@@ -127,6 +128,8 @@ export async function create(req, res) {
   if (meta.hasCreatedBy && !data.created_by && req.user) data.created_by = req.user.email;
   const record = await delegate(meta).create({ data });
   emitEntityEvent(meta.name, 'create', record.id, record.school_id);
+  // New announcements reach phones immediately; failures never block the API.
+  if (meta.name === 'Message') notifyMessagePush(record).catch(() => {});
   if (meta.name !== 'AuditLog') {
     await writeAudit(req, {
       action: 'create',

@@ -4,6 +4,7 @@ import { env } from './config/env.js';
 import { prisma } from './lib/prisma.js';
 import { initRealtime } from './lib/realtime.js';
 import { activeProvider } from './lib/email.js';
+import { captureError } from './lib/monitoring.js';
 
 const app = createApp();
 const server = http.createServer(app);
@@ -54,8 +55,10 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 // the platform restarts us clean.
 process.on('unhandledRejection', (reason) => {
   console.error('[unhandledRejection]', reason);
+  captureError(reason instanceof Error ? reason : new Error(String(reason)), { source: 'unhandledRejection' });
 });
 process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err);
+  captureError(err, { source: 'uncaughtException' });
   process.exit(1);
 });

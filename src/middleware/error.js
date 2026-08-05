@@ -1,4 +1,5 @@
 // Central error helpers + Express error handler.
+import { captureError } from '../lib/monitoring.js';
 
 export class ApiError extends Error {
   constructor(status, message, extra = undefined) {
@@ -29,6 +30,7 @@ export function errorHandler(err, req, res, _next) {
   const status = err.status || 500;
   if (status >= 500) {
     console.error('[error]', err);
+    captureError(err, { path: req.path, method: req.method, user: req.user?.email });
   }
   const payload = { error: err.message || 'Internal server error' };
   if (err.extra) payload.extra_data = err.extra;

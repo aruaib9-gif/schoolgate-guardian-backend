@@ -26,6 +26,8 @@ model User {
   // --- auth ---
   email         String    @unique
   password_hash String?
+  // Expo push token for mobile notifications (set by the app after login).
+  push_token    String?
   // Global platform role: "admin" (full app admin) or "user". App code reads user.role.
   role          String    @default("user")
   full_name     String?
