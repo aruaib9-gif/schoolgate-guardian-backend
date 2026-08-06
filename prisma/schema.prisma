@@ -31,6 +31,7 @@ model User {
   // Global platform role: "admin" (full app admin) or "user". App code reads user.role.
   role          String    @default("user")
   full_name     String?
+  photo_url     String?
   // --- profile / tenant fields (from User entity) ---
   school_id         String?
   person_id         String?
