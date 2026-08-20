@@ -20,6 +20,7 @@ import superadminRoutes from './routes/superadmin.routes.js';
 import qrRoutes from './routes/qr.routes.js';
 import billingRoutes, { paystackWebhook } from './routes/billing.routes.js';
 import pickupRoutes from './routes/pickup.routes.js';
+import enrolRoutes from './routes/enrol.routes.js';
 
 export function createApp() {
   const app = express();
@@ -116,6 +117,7 @@ export function createApp() {
   app.use('/qr', apiLimiter, qrRoutes);
   app.use('/api/billing', apiLimiter, billingRoutes);
   app.use('/api/pickup', apiLimiter, pickupRoutes);
+  app.use('/api/enrol', apiLimiter, enrolRoutes);
 
   // 404 + error handling
   app.use((req, _res, next) => next(notFound(`No route for ${req.method} ${req.path}`)));

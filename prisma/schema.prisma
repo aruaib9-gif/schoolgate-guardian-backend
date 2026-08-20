@@ -129,7 +129,9 @@ model Person {
   emergency_phone        String?
   linked_children        String[] @default([])
   father_email           String?
+  father_name            String?
   mother_email           String?
+  mother_name            String?
   grade                  String?
   department             String?
   current_status         String   @default("outside") // inside | outside
