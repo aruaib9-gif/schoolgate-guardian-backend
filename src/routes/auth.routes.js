@@ -109,7 +109,11 @@ router.patch(
   asyncHandler(async (req, res) => {
     const body = req.body || {};
     // Whitelist self-editable fields.
-    const allowed = ['full_name', 'gate_name', 'assigned_bus_id', 'person_id', 'profile_completed', 'push_token', 'photo_url'];
+    // person_id is deliberately NOT self-editable: it is the link between a
+    // login and a real person, so letting users set it would let anyone
+    // attach their account to another person's record (and their photo, QR
+    // and access history). Only invites/admin provisioning set it.
+    const allowed = ['full_name', 'gate_name', 'assigned_bus_id', 'profile_completed', 'push_token', 'photo_url'];
     const data = {};
     for (const k of allowed) if (k in body) data[k] = body[k];
     if (body.password) data.password_hash = await hashPassword(body.password);
