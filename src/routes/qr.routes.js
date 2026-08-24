@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import QRCode from 'qrcode';
+import { randomBytes } from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth, ADMIN_ROLES, hasAnyRole } from '../middleware/auth.js';
 import { asyncHandler, notFound, forbidden } from '../middleware/error.js';
@@ -63,6 +64,16 @@ router.get(
       })
     );
 
+    // helmet's default CSP sets script-src-attr 'none', which silently blocks
+    // inline onclick handlers — that is what stopped "Print all" working. Use
+    // a per-response nonce instead of relaxing the policy: the page renders
+    // names straight from the database, so 'unsafe-inline' would be an XSS
+    // foothold.
+    const nonce = randomBytes(16).toString('base64');
+    res.setHeader(
+      'Content-Security-Policy',
+      `default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none'`
+    );
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(`<!doctype html><html><head><meta charset="utf-8">
 <title>${esc(school.name)} — ID cards (${people.length})</title>
@@ -110,9 +121,12 @@ router.get(
       <h1>${esc(school.name)} — ID cards</h1>
       <p>${people.length} card${people.length === 1 ? '' : 's'}${req.query.category ? ` · ${esc(String(req.query.category))}s only` : ''} · print, or use your browser's “Save as PDF”</p>
     </div>
-    <button onclick="window.print()">Print all</button>
+    <button id="print-all" type="button">Print all</button>
   </div>
   <div class="sheet">${cards.join('')}</div>
+  <script nonce="${nonce}">
+    document.getElementById('print-all').addEventListener('click', function () { window.print(); });
+  </script>
 </body></html>`);
   })
 );
