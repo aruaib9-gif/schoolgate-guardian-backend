@@ -40,6 +40,9 @@ const rotSig = (childId, parentEmail, counter) =>
     .digest('base64url')
     .slice(0, 16);
 
+// How long a delegate pass stays usable after the child is actually collected.
+const PASS_GRACE_MS = 2 * 60 * 60 * 1000; // 2 hours
+
 const SCAN_ROLES = new Set(['security', 'school_bus_admin', ...ADMIN_ROLES]);
 
 function parentOf(person, email) {
@@ -93,6 +96,44 @@ router.post(
       },
     });
     res.status(201).json(pass);
+  })
+);
+
+// GET /api/pickup/passes/:childId — passes this parent has issued, newest first.
+router.get(
+  '/passes/:childId',
+  asyncHandler(async (req, res) => {
+    const child = await prisma.person.findUnique({ where: { id: req.params.childId } });
+    if (!child) throw notFound('Child not found');
+    if (!parentOf(child, req.user.email) && !ADMIN_ROLES.has(req.role)) {
+      throw forbidden('Only a registered parent can see these passes');
+    }
+    const rows = await prisma.oneTimePass.findMany({
+      where: { child_id: child.id }, orderBy: { created_date: 'desc' }, take: 20,
+    });
+    const now = new Date();
+    res.json(rows.map((p) => ({
+      ...p,
+      // Derived so the app never has to reimplement the expiry rule.
+      is_live: p.status !== 'revoked' && p.status !== 'expired' && (!p.valid_until || p.valid_until > now),
+    })));
+  })
+);
+
+// POST /api/pickup/passes/:id/revoke — parent cancels a pass they shared.
+router.post(
+  '/passes/:id/revoke',
+  asyncHandler(async (req, res) => {
+    const pass = await prisma.oneTimePass.findUnique({ where: { id: req.params.id } });
+    if (!pass) throw notFound('Pass not found');
+    const child = await prisma.person.findUnique({ where: { id: pass.child_id } });
+    if (!child || (!parentOf(child, req.user.email) && !ADMIN_ROLES.has(req.role))) {
+      throw forbidden('Only the issuing parent can cancel this pass');
+    }
+    const updated = await prisma.oneTimePass.update({
+      where: { id: pass.id }, data: { status: 'revoked' },
+    });
+    res.json(updated);
   })
 );
 
@@ -155,14 +196,29 @@ router.post(
     } else if (code.startsWith('OTP-')) {
       const pass = await prisma.oneTimePass.findFirst({ where: { qr_code: code } });
       if (!pass) throw notFound('Unknown pass');
-      if (pass.status !== 'active') throw badRequest(`This one-time pass was already ${pass.status}`);
+      if (pass.status === 'expired') throw badRequest('This pickup pass has expired');
+      if (pass.status === 'revoked') throw badRequest('This pickup pass was cancelled by the parent');
       if (pass.valid_until && pass.valid_until < when) {
         await prisma.oneTimePass.update({ where: { id: pass.id }, data: { status: 'expired' } });
-        throw badRequest('This one-time pass has expired');
+        throw badRequest(
+          pass.used_at
+            ? 'This pickup pass expired two hours after the child was collected.'
+            : 'This pickup pass has expired.'
+        );
       }
       child = await prisma.person.findUnique({ where: { id: pass.child_id } });
       if (!child) throw notFound('Child on this pass no longer exists');
-      await prisma.oneTimePass.update({ where: { id: pass.id }, data: { status: 'used', used_at: when } });
+
+      // The pass dies two hours AFTER the child is collected, not instantly:
+      // the same code still has to work for the bus drop-off, and a guard
+      // re-scanning to check a name should not be locked out. Only the first
+      // scan starts that clock.
+      if (!pass.used_at) {
+        await prisma.oneTimePass.update({
+          where: { id: pass.id },
+          data: { used_at: when, valid_until: new Date(when.getTime() + PASS_GRACE_MS), status: 'used' },
+        });
+      }
       byLine = `${pass.authorized_person_name} (authorised by ${pass.parent_name || 'parent'})`;
       passType = 'one_time';
     } else {
