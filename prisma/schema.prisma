@@ -123,7 +123,7 @@ model Person {
   email                  String?
   phone                  String?
   whatsapp_number        String?
-  category               String // student | parent | teacher | school_worker | management | security | reception | staff | school_bus_admin | guest
+  category               String // student | parent | teacher | school_worker | management | security | staff | school_bus_admin | guest
   portal_access          Boolean  @default(false)
   qr_code                String
   photo_url              String?
@@ -450,7 +450,7 @@ model Invitation {
   last_name       String?
   email           String
   phone           String?
-  role            String? // admin | teacher | parent | student | security | reception | staff | management | school_bus_admin
+  role            String? // admin | teacher | parent | student | security | staff | management | school_bus_admin
   department      String?
   grade           String?
   portal_access   Boolean   @default(true)

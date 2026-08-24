@@ -41,6 +41,7 @@ export async function sendAbsenceReport(options = {}) {
     const people = await prisma.person.findMany({ where: { school_id: school.id } });
     const staffAndStudents = people.filter(
       (p) =>
+        // 'reception' is retired; anyone still on it is still counted here.
         ['student', 'teacher', 'school_worker', 'management', 'security', 'reception'].includes(p.category) &&
         p.active !== false
     );

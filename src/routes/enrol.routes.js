@@ -19,7 +19,7 @@ router.use(requireAuth);
  * account linked to the child.
  */
 
-const STAFF_PORTAL = new Set(['admin', 'management', 'security', 'teacher', 'reception', 'school_bus_admin', 'sales_rep']);
+const STAFF_PORTAL = new Set(['admin', 'management', 'security', 'teacher', 'school_bus_admin', 'sales_rep']);
 const newQr = () => `QR-${Date.now().toString(36).toUpperCase()}${nanoid(6).toUpperCase()}`;
 
 function assertAdmin(req) {

@@ -2,7 +2,7 @@
  * seed-demo.js — a coherent "Grace Academy" demo dataset for the mobile app.
  *
  * Creates the six role login accounts the mobile login screen previews
- * (admin/teacher/security/reception/parent/sales @grace.ng, password demo1234)
+ * (admin/teacher/security/parent/sales @grace.ng, password demo1234)
  * plus people, classes, access logs, attendance, passes, visitors, a bus and
  * messages — all scoped to the Grace Academy school — so every mobile screen
  * shows real data from the live backend.
@@ -58,7 +58,6 @@ async function main() {
     P('demo_admin', 'Chidi Okafor', 'management', { email: 'admin@grace.ng', current_status: 'inside' }),
     P('demo_teach1', 'Ngozi Adeyemi', 'teacher', { email: 'teacher@grace.ng', department: 'Science', current_status: 'inside' }),
     P('demo_sec1', 'Emeka Balogun', 'security', { email: 'security@grace.ng', current_status: 'inside' }),
-    P('demo_recep1', 'Blessing Ogunleye', 'reception', { email: 'reception@grace.ng', current_status: 'inside' }),
     P('demo_par1', 'Folake Adebayo', 'parent', { email: 'parent@grace.ng', linked_children: ['demo_stu1', 'demo_stu2'] }),
     P('demo_sales1', 'Sade Williams', 'staff', { email: 'sales@grace.ng', department: 'Sales', current_status: 'inside' }),
     P('demo_stu1', 'Chiamaka Eze', 'student', { grade: 'Grade 5', current_status: 'inside', father_email: 'parent@grace.ng' }),
@@ -81,7 +80,6 @@ async function main() {
     U('admin@grace.ng', 'demo_admin', 'admin', 'Chidi Okafor'),
     U('teacher@grace.ng', 'demo_teach1', 'teacher', 'Ngozi Adeyemi'),
     U('security@grace.ng', 'demo_sec1', 'security', 'Emeka Balogun', { gate_name: 'Main Gate' }),
-    U('reception@grace.ng', 'demo_recep1', 'reception', 'Blessing Ogunleye'),
     U('parent@grace.ng', 'demo_par1', 'parent', 'Folake Adebayo'),
     U('sales@grace.ng', 'demo_sales1', 'sales_rep', 'Sade Williams'),
   ];

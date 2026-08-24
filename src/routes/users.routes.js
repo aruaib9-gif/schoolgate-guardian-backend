@@ -125,7 +125,7 @@ router.post(
  * roles: a school administrator must never be able to mint a superadmin.
  */
 const ASSIGNABLE = new Set([
-  'admin', 'management', 'security', 'reception', 'teacher',
+  'admin', 'management', 'security', 'teacher',
   'school_bus_admin', 'sales_rep', 'staff', 'parent', 'student',
 ]);
 
