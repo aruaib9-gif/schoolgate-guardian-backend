@@ -1,5 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { normaliseName, allowsNamesake, duplicateError } from '../src/lib/enrolRules.js';
 
 /**
  * Enrolment rules. These encode the school's actual policy:
@@ -104,5 +105,50 @@ describe('bulk import', () => {
     assert.equal(created.length, 2);
     assert.equal(failed.length, 2);
     assert.deepEqual(failed.map((f) => f.row), [2, 3]);
+  });
+});
+
+/**
+ * Duplicate prevention. Bulk import happily enrolled the same child twice —
+ * a second "Asake Olabode, Grade 5" with no login. Email is the primary key
+ * and exact name the secondary one, which is what catches children: they have
+ * no address of their own for the primary key to work with.
+ */
+describe('duplicate prevention', () => {
+  const dupByEmail = { on: 'email', person: { full_name: 'Mr Bello' } };
+  const dupByName = { on: 'name', person: { full_name: 'Asake Olabode' } };
+
+  test('a repeated email is refused', () => {
+    const err = duplicateError(dupByEmail, { name: 'M Bello', email: 'bello@grace.ng', allowNamesake: false });
+    assert.match(err, /already enrolled here as Mr Bello/);
+  });
+
+  test('an email collision cannot be waved through — one address is one human', () => {
+    const err = duplicateError(dupByEmail, { name: 'M Bello', email: 'bello@grace.ng', allowNamesake: true });
+    assert.ok(err, 'allow_duplicate_name must not override the email key');
+  });
+
+  test('a repeated exact name is refused and says how to override', () => {
+    const err = duplicateError(dupByName, { name: 'Asake Olabode', email: null, allowNamesake: false });
+    assert.match(err, /allow_duplicate_name/);
+  });
+
+  test('a genuine namesake can be enrolled deliberately', () => {
+    const err = duplicateError(dupByName, { name: 'Asake Olabode', email: null, allowNamesake: true });
+    assert.equal(err, null);
+  });
+
+  test('nothing on the roll means nothing to block', () => {
+    assert.equal(duplicateError(null, { name: 'New Child', email: null, allowNamesake: false }), null);
+  });
+
+  test('spreadsheet spacing and case do not create a second person', () => {
+    assert.equal(normaliseName('  Asake   Olabode '), 'Asake Olabode');
+    assert.equal(normaliseName('Asake Olabode'), normaliseName('Asake  Olabode'));
+  });
+
+  test('the override reads as text from a CSV cell, not just a boolean', () => {
+    for (const yes of [true, 'true', 'TRUE', 'Yes', 'y', '1']) assert.ok(allowsNamesake(yes), String(yes));
+    for (const no of [undefined, null, '', 'false', 'no', '0', 'maybe']) assert.equal(allowsNamesake(no), false, String(no));
   });
 });
