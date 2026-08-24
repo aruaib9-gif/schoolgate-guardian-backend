@@ -6,6 +6,7 @@ import { requireAuth, ADMIN_ROLES } from '../middleware/auth.js';
 import { asyncHandler, badRequest, notFound, forbidden } from '../middleware/error.js';
 import { env } from '../config/env.js';
 import { sendEmail } from '../lib/email.js';
+import { pickupAlert } from '../lib/emailTemplates.js';
 import { sendPush, tokensFor } from '../lib/push.js';
 import { emitEntityEvent } from '../lib/realtime.js';
 
@@ -137,14 +138,28 @@ router.post(
   })
 );
 
-async function notifyParents(child, { title, body }) {
+/**
+ * Tell both parents, right now, by push AND email.
+ *
+ * Deliberately fire-and-forget: a mail or push hiccup must never block the
+ * gate. The scan is already recorded by the time this runs.
+ */
+async function notifyParents(child, { headline, detail, time, schoolName, tone }) {
   const emails = [child.father_email, child.mother_email].filter(Boolean);
   if (!emails.length) return;
+
   const users = await prisma.user.findMany({ where: { email: { in: emails } } });
   const tokens = users.map((u) => u.push_token).filter(Boolean);
-  sendPush(tokens, { title, body, data: { type: 'pickup', person_id: child.id } }).catch(() => {});
+  sendPush(tokens, {
+    title: `${child.full_name}: ${headline}`,
+    body: detail,
+    data: { type: 'pickup', person_id: child.id },
+  }).catch((e) => console.error('[pickup] push failed:', e?.message));
+
+  const mail = pickupAlert({ childName: child.full_name, headline, detail, time, schoolName, tone });
   for (const to of emails) {
-    sendEmail({ to, from_name: 'School Guardian', subject: title, body }).catch(() => {});
+    sendEmail({ to, from_name: 'School Guardian', ...mail })
+      .catch((e) => console.error('[pickup] email failed:', to, e?.message));
   }
 }
 
@@ -159,6 +174,7 @@ router.post(
     const time = when.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' });
 
     let child = null;
+    let school = null;
     let byLine = '';       // for logs
     let passType = '';
 
@@ -225,6 +241,8 @@ router.post(
       throw badRequest('Not a pickup code');
     }
 
+    school = child.school_id ? await prisma.school.findUnique({ where: { id: child.school_id } }).catch(() => null) : null;
+
     if (context === 'bus') {
       if (!bus_id) throw badRequest('bus_id is required for bus drop-offs');
       await prisma.busScanLog.create({
@@ -238,8 +256,9 @@ router.post(
       });
       await prisma.person.update({ where: { id: child.id }, data: { current_status: 'outside' } });
       notifyParents(child, {
-        title: `${child.full_name} dropped off at home`,
-        body: `${child.full_name} was dropped off by ${bus_name || 'the school bus'} at ${time} and received by ${byLine}.`,
+        headline: 'dropped off at home',
+        detail: `Dropped off by ${bus_name || 'the school bus'} and received by ${byLine}.`,
+        time, schoolName: school?.name, tone: 'green',
       });
       emitEntityEvent('BusScanLog', 'create', undefined, child.school_id);
       return res.json({ ok: true, action: 'dropoff', child: { id: child.id, name: child.full_name }, by: byLine });
@@ -255,8 +274,9 @@ router.post(
     });
     await prisma.person.update({ where: { id: child.id }, data: { current_status: 'outside' } });
     notifyParents(child, {
-      title: `${child.full_name} left school`,
-      body: `${child.full_name} was signed out at ${time}, picked up by ${byLine}.`,
+      headline: 'has been picked up',
+      detail: `Signed out at the ${gate_name || req.user.gate_name || 'Main Gate'} and collected by ${byLine}.`,
+      time, schoolName: school?.name, tone: 'green',
     });
     emitEntityEvent('AccessLog', 'create', undefined, child.school_id);
     res.json({ ok: true, action: 'pickup', child: { id: child.id, name: child.full_name }, by: byLine });

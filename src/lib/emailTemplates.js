@@ -153,6 +153,39 @@ export function invoiceEmail({ schoolName, planName, amount, currency = 'NGN', p
   };
 }
 
+/**
+ * Pickup / drop-off alert to a parent. Sent the moment the gate or the bus
+ * scan happens, so the phone buzzing and the email landing tell the same
+ * story: who has the child, and when.
+ */
+export function pickupAlert({ childName, headline, detail, time, schoolName, tone = 'green' }) {
+  const accent = tone === 'green' ? '#16a34a' : '#4f46e5';
+  const box = `
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;background:#f6f7fb;border-left:4px solid ${accent};border-radius:10px;">
+            <tr><td style="padding:16px 18px;">
+              <div style="font-size:12px;font-weight:700;letter-spacing:.06em;color:#94a3b8;text-transform:uppercase;">${esc(time)}</div>
+              <div style="margin-top:8px;font-size:16px;font-weight:800;color:#0f172a;">${esc(childName)}</div>
+              <div style="margin-top:6px;font-size:14px;line-height:1.6;color:#475569;">${esc(detail)}</div>
+            </td></tr>
+          </table>`;
+  return {
+    subject: `${childName}: ${headline}`,
+    body: [
+      `${childName} — ${headline}`, '',
+      detail, '',
+      `Time: ${time}`,
+      schoolName ? `School: ${schoolName}` : '', '',
+      `— ${BRAND}`,
+    ].filter(Boolean).join('\n'),
+    html: layout({
+      heading: esc(headline),
+      intro: schoolName ? `An update from <strong>${esc(schoolName)}</strong>.` : 'An update about your child.',
+      beforeCta: box,
+      footnote: "If this wasn't expected, contact the school office straight away.",
+    }),
+  };
+}
+
 /** Trial ending soon. */
 export function trialEnding({ schoolName, daysLeft, planName }) {
   const when = daysLeft <= 0 ? 'today' : daysLeft === 1 ? 'tomorrow' : `in ${daysLeft} days`;
