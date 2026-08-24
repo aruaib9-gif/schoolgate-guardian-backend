@@ -29,7 +29,7 @@ const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
  */
 export async function loadSchool(req, _res, next) {
   try {
-    if (req.isService || PLATFORM_ROLES.has(req.role)) return next();
+    if (req.isService || (req.roles || [req.role]).some((r) => PLATFORM_ROLES.has(r))) return next();
 
     const schoolId = req.user?.school_id;
     if (!schoolId) return next(); // unscoped user — nothing to enforce
@@ -79,7 +79,7 @@ export async function loadSchool(req, _res, next) {
 /** Gate a route on a plan capability. */
 export function requireFeature(feature) {
   return (req, _res, next) => {
-    if (req.isService || PLATFORM_ROLES.has(req.role) || !req.school) return next();
+    if (req.isService || (req.roles || [req.role]).some((r) => PLATFORM_ROLES.has(r)) || !req.school) return next();
     if (can(req.school, feature)) return next();
     next(
       paymentRequired(`Your ${req.school.subscription_plan} plan does not include this feature.`, {

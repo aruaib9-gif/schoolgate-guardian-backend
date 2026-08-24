@@ -39,20 +39,29 @@ export function clearPermissionCache() {
  */
 export async function assertPermission(req, meta, action) {
   if (req.isService) return;
-  const role = req.role;
-  if (ADMIN_ROLES.has(role)) return;
+  const roles = req.roles?.length ? req.roles : [req.role];
+  if (roles.some((r) => ADMIN_ROLES.has(r))) return;
   const resource = meta.resource;
   if (!resource) return; // unmapped entity — allow authenticated access
 
-  const perms = await loadPermissions(role, req.user?.school_id);
-  if (!perms) return; // no configured permissions — permissive fallback
-
-  const resourcePerms = perms[resource];
-  if (!resourcePerms) throw forbidden(`Role "${role}" has no access to ${resource}`);
-
   const allowedActions = ACTION_MAP[action] || [action];
-  const granted = allowedActions.some((a) => resourcePerms[a] === true);
-  if (!granted) {
-    throw forbidden(`Role "${role}" is not permitted to ${action} ${resource}`);
+
+  // Permissions are the UNION across every role the account holds: a teacher
+  // who also runs the bus gets both sets. Any single role granting the action
+  // is enough.
+  let sawConfig = false;
+  for (const role of roles) {
+    const perms = await loadPermissions(role, req.user?.school_id);
+    if (!perms) continue; // this role has no configured row
+    sawConfig = true;
+    const resourcePerms = perms[resource];
+    if (!resourcePerms) continue;
+    if (allowedActions.some((a) => resourcePerms[a] === true)) return;
   }
+
+  // No row configured for any role — permissive fallback, so a fresh install
+  // without seeded permissions is still usable.
+  if (!sawConfig) return;
+
+  throw forbidden(`Role${roles.length > 1 ? 's' : ''} "${roles.join(', ')}" not permitted to ${action} ${resource}`);
 }

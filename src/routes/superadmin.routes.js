@@ -6,7 +6,7 @@ import * as sa from '../controllers/superadmin.controller.js';
 // Only platform-level operators may use the console API.
 const PLATFORM_ROLES = new Set(['superadmin', 'head_of_schools']);
 function requireSuperAdmin(req, _res, next) {
-  if (PLATFORM_ROLES.has(req.role)) return next();
+  if ((req.roles || [req.role]).some((r) => PLATFORM_ROLES.has(r))) return next();
   next(forbidden('Super admin access required'));
 }
 

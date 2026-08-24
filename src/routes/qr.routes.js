@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import QRCode from 'qrcode';
 import { prisma } from '../lib/prisma.js';
-import { requireAuth, ADMIN_ROLES } from '../middleware/auth.js';
+import { requireAuth, ADMIN_ROLES, hasAnyRole } from '../middleware/auth.js';
 import { asyncHandler, notFound, forbidden } from '../middleware/error.js';
 
 const router = Router();
@@ -24,7 +24,7 @@ router.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const crossTenant = req.role === 'superadmin' || req.role === 'head_of_schools';
-    if (!ADMIN_ROLES.has(req.role)) throw forbidden('Only administrators can print ID cards');
+    if (!hasAnyRole(req, ADMIN_ROLES)) throw forbidden('Only administrators can print ID cards');
     if (!crossTenant && req.params.schoolId !== req.user.school_id) throw forbidden('You can only print cards for your own school');
 
     const school = await prisma.school.findUnique({ where: { id: req.params.schoolId } });
@@ -134,7 +134,7 @@ router.get(
     const code = req.params.code;
     const person = await prisma.person.findFirst({ where: { qr_code: code } });
 
-    const isAdmin = ADMIN_ROLES.has(req.role) || req.role === 'management';
+    const isAdmin = hasAnyRole(req, ADMIN_ROLES) || (req.roles || []).includes('management');
     if (person) {
       const sameSchool = !person.school_id || person.school_id === req.user.school_id;
       const isSelf = req.user.person_id === person.id;

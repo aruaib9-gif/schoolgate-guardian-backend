@@ -6,6 +6,24 @@ import { env } from '../config/env.js';
 // Roles that bypass fine-grained permission checks (full app administrators).
 export const ADMIN_ROLES = new Set(['superadmin', 'admin', 'head_of_schools', 'school_admin']);
 
+
+/**
+ * Every role an account holds: its primary role plus any extras.
+ *
+ * A staff member can legitimately wear two hats — a teacher who also runs the
+ * bus, or an admin who covers the gate. Permissions are the UNION, so holding
+ * an extra role can only ever add access, never remove it.
+ */
+export function rolesOf(user) {
+  const all = [user?.user_category || user?.role || 'user', ...(user?.extra_roles || [])];
+  return [...new Set(all.filter(Boolean))];
+}
+
+/** Does this request hold ANY of the given roles? */
+export function hasAnyRole(req, roleSet) {
+  return (req.roles || [req.role]).some((r) => roleSet.has(r));
+}
+
 function extractToken(req) {
   const header = req.headers.authorization || '';
   if (header.startsWith('Bearer ')) return header.slice(7).trim();
@@ -30,9 +48,9 @@ export async function requireAuth(req, res, next) {
     const user = await prisma.user.findUnique({ where: { id: decoded.sub } });
     if (!user || user.is_active === false) throw unauthorized('User not found or inactive');
     req.user = user;
-    // Effective role used for RBAC: the app treats user_category as the domain
-    // role, falling back to the global auth role.
+    // Primary role (display, back-compat) and the full set used for RBAC.
     req.role = user.user_category || user.role || 'user';
+    req.roles = rolesOf(user);
     next();
   } catch (err) {
     next(err);
@@ -52,6 +70,7 @@ export async function optionalAuth(req, _res, next) {
     if (user && user.is_active !== false) {
       req.user = user;
       req.role = user.user_category || user.role || 'user';
+      req.roles = rolesOf(user);
     }
   } catch {
     /* ignore — treat as anonymous */

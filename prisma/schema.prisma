@@ -35,7 +35,10 @@ model User {
   // --- profile / tenant fields (from User entity) ---
   school_id         String?
   person_id         String?
-  user_category     String? // superadmin | admin | management | security | reception | teacher | school_worker | staff | parent | student
+  user_category     String? // PRIMARY role — what the person is called and how the app greets them
+  // Additional roles this account also holds, e.g. a teacher who also runs the
+  // bus. Permissions are the UNION of user_category + these.
+  extra_roles       String[] @default([])
   gate_name         String?
   assigned_bus_id   String?
   is_active         Boolean  @default(true)

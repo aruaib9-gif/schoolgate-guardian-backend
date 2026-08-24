@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { nanoid } from 'nanoid';
 import { prisma } from '../lib/prisma.js';
-import { requireAuth, ADMIN_ROLES } from '../middleware/auth.js';
+import { requireAuth, ADMIN_ROLES, hasAnyRole } from '../middleware/auth.js';
 import { asyncHandler, badRequest, forbidden } from '../middleware/error.js';
 import { inviteUser } from '../lib/invite.js';
 
@@ -22,7 +22,7 @@ const STAFF_PORTAL = new Set(['admin', 'management', 'security', 'teacher', 'rec
 const newQr = () => `QR-${Date.now().toString(36).toUpperCase()}${nanoid(6).toUpperCase()}`;
 
 function assertAdmin(req) {
-  if (!ADMIN_ROLES.has(req.role) && req.role !== 'management') {
+  if (!hasAnyRole(req, ADMIN_ROLES) && !(req.roles || []).includes('management')) {
     throw forbidden('Only administrators can enrol people');
   }
 }

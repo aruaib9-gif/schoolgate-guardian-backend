@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { createHmac } from 'node:crypto';
 import { nanoid } from 'nanoid';
 import { prisma } from '../lib/prisma.js';
-import { requireAuth, ADMIN_ROLES } from '../middleware/auth.js';
+import { requireAuth, ADMIN_ROLES, hasAnyRole } from '../middleware/auth.js';
 import { asyncHandler, badRequest, notFound, forbidden } from '../middleware/error.js';
 import { env } from '../config/env.js';
 import { sendEmail } from '../lib/email.js';
@@ -59,7 +59,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const child = await prisma.person.findUnique({ where: { id: req.params.childId } });
     if (!child) throw notFound('Child not found');
-    if (!parentOf(child, req.user.email) && !ADMIN_ROLES.has(req.role)) {
+    if (!parentOf(child, req.user.email) && !hasAnyRole(req, ADMIN_ROLES)) {
       throw forbidden('Only a registered parent can get this pickup code');
     }
     const email = parentOf(child, req.user.email) ? req.user.email : child.father_email || child.mother_email;
@@ -106,7 +106,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const child = await prisma.person.findUnique({ where: { id: req.params.childId } });
     if (!child) throw notFound('Child not found');
-    if (!parentOf(child, req.user.email) && !ADMIN_ROLES.has(req.role)) {
+    if (!parentOf(child, req.user.email) && !hasAnyRole(req, ADMIN_ROLES)) {
       throw forbidden('Only a registered parent can see these passes');
     }
     const rows = await prisma.oneTimePass.findMany({
@@ -128,7 +128,7 @@ router.post(
     const pass = await prisma.oneTimePass.findUnique({ where: { id: req.params.id } });
     if (!pass) throw notFound('Pass not found');
     const child = await prisma.person.findUnique({ where: { id: pass.child_id } });
-    if (!child || (!parentOf(child, req.user.email) && !ADMIN_ROLES.has(req.role))) {
+    if (!child || (!parentOf(child, req.user.email) && !hasAnyRole(req, ADMIN_ROLES))) {
       throw forbidden('Only the issuing parent can cancel this pass');
     }
     const updated = await prisma.oneTimePass.update({
@@ -168,7 +168,7 @@ async function notifyParents(child, { headline, detail, time, schoolName, tone }
 router.post(
   '/scan',
   asyncHandler(async (req, res) => {
-    if (!SCAN_ROLES.has(req.role)) throw forbidden('Only security or bus staff can scan pickups');
+    if (!hasAnyRole(req, SCAN_ROLES)) throw forbidden('Only security or bus staff can scan pickups');
     const { code = '', context = 'gate', bus_id, bus_name, gate_name } = req.body || {};
     const when = new Date();
     const time = when.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' });

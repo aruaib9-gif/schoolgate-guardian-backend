@@ -1,4 +1,4 @@
-import { ADMIN_ROLES } from '../middleware/auth.js';
+import { ADMIN_ROLES, rolesOf } from '../middleware/auth.js';
 
 // Roles allowed to see across all schools (platform-level operators).
 const CROSS_TENANT_ROLES = new Set(['superadmin', 'head_of_schools']);
@@ -9,9 +9,9 @@ const CROSS_TENANT_ROLES = new Set(['superadmin', 'head_of_schools']);
  * to their own school_id when they have one.
  */
 export function applyTenantScope(req, meta, where = {}) {
-  const role = req.role;
+  const roles = req.roles || [req.role];
   if (req.isService) return where;
-  if (CROSS_TENANT_ROLES.has(role)) return where;
+  if (roles.some((r) => CROSS_TENANT_ROLES.has(r))) return where;
   const schoolId = req.user?.school_id;
   if (!schoolId) return where; // user has no school yet — no extra constraint
 
@@ -41,7 +41,7 @@ export function applyTenantScope(req, meta, where = {}) {
  * users may read but never modify.
  */
 export function tenantBlock(req, meta, existing, { forWrite = false } = {}) {
-  if (req.isService || CROSS_TENANT_ROLES.has(req.role)) return null;
+  if (req.isService || (req.roles || [req.role]).some((r) => CROSS_TENANT_ROLES.has(r))) return null;
   const schoolId = req.user?.school_id;
   if (!schoolId) return null;
   if (meta.name === 'School') return existing.id === schoolId ? null : 'notfound';
@@ -60,9 +60,9 @@ export function tenantBlock(req, meta, existing, { forWrite = false } = {}) {
  */
 export function stampTenantOnCreate(req, meta, data) {
   if (!meta.hasSchoolId) return data;
-  const role = req.role;
+  const roles = req.roles || [req.role];
   const schoolId = req.user?.school_id;
-  if (CROSS_TENANT_ROLES.has(role) || req.isService) {
+  if (roles.some((r) => CROSS_TENANT_ROLES.has(r)) || req.isService) {
     return data; // trust supplied school_id (may be cross-tenant admin action)
   }
   if (schoolId) return { ...data, school_id: schoolId };

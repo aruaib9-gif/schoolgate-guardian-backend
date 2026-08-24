@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { nanoid } from 'nanoid';
 import { prisma } from '../lib/prisma.js';
-import { requireAuth, ADMIN_ROLES } from '../middleware/auth.js';
+import { requireAuth, ADMIN_ROLES, hasAnyRole } from '../middleware/auth.js';
 import { asyncHandler, notFound, forbidden, badRequest } from '../middleware/error.js';
 import { computeCharge, planById, cycleById } from '../lib/plans.js';
 import { initializeTransaction, verifyTransaction, webhookMode } from '../lib/paystack.js';
@@ -14,7 +14,7 @@ async function platformConfig() {
 }
 
 function schoolAdminOnly(req) {
-  if (!ADMIN_ROLES.has(req.role)) throw forbidden('Billing is only visible to administrators');
+  if (!hasAnyRole(req, ADMIN_ROLES)) throw forbidden('Billing is only visible to administrators');
   if (!req.user.school_id) throw badRequest('Your account is not linked to a school');
 }
 
