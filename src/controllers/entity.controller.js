@@ -9,6 +9,7 @@ import { emitEntityEvent } from '../lib/realtime.js';
 import { notifyMessagePush } from '../lib/push.js';
 import { badRequest, notFound, forbidden, paymentRequired } from '../middleware/error.js';
 import { checkLimit, upgradeForLimit } from '../lib/entitlements.js';
+import { clearFromOtherBuses } from '../lib/busRules.js';
 
 // Which entities consume a numeric plan quota.
 const QUOTA_FOR = { Person: 'people' };
@@ -185,6 +186,19 @@ export async function update(req, res) {
   // Do not allow a scoped user to move a record into another tenant.
   const scoped = applyTenantScope(req, meta, {});
   if (scoped.school_id) data.school_id = scoped.school_id;
+
+  // A child rides one bus at a time — see lib/busRules.js. Done before the
+  // write, so a moment where a child is on no bus is possible but a moment
+  // where they are on two is not.
+  let movedFrom = [];
+  if (meta.name === 'SchoolBus' && Array.isArray(data.assigned_student_ids)) {
+    movedFrom = await clearFromOtherBuses(prisma, {
+      busId: req.params.id,
+      schoolId: data.school_id || existing.school_id,
+      studentIds: data.assigned_student_ids,
+    });
+  }
+
   const record = await delegate(meta).update({ where: { id: req.params.id }, data });
   emitEntityEvent(meta.name, 'update', record.id, record.school_id);
   if (meta.name !== 'AuditLog') {
@@ -197,7 +211,9 @@ export async function update(req, res) {
       after: serialize(meta, record),
     });
   }
-  res.json(serialize(meta, record));
+  const body = serialize(meta, record);
+  if (movedFrom.length) body.moved_from_buses = movedFrom;
+  res.json(body);
 }
 
 // DELETE /:entity/:id
