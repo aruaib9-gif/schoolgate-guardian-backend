@@ -10,6 +10,7 @@ import { notifyMessagePush } from '../lib/push.js';
 import { badRequest, notFound, forbidden, paymentRequired } from '../middleware/error.js';
 import { checkLimit, upgradeForLimit } from '../lib/entitlements.js';
 import { clearFromOtherBuses } from '../lib/busRules.js';
+import { detachPerson } from '../lib/personRules.js';
 
 // Which entities consume a numeric plan quota.
 const QUOTA_FOR = { Person: 'people' };
@@ -221,6 +222,14 @@ export async function remove(req, res) {
   const meta = req.entityMeta;
   await assertPermission(req, meta, 'delete');
   const existing = await fetchScopedOr404(req, meta);
+
+  // Clean up what a person's id is still attached to before the row goes —
+  // see lib/personRules.js for what is removed and what is kept.
+  let detached = null;
+  if (meta.name === 'Person') {
+    detached = await detachPerson(prisma, { personId: req.params.id, schoolId: existing.school_id });
+  }
+
   await delegate(meta).delete({ where: { id: req.params.id } });
   emitEntityEvent(meta.name, 'delete', req.params.id, existing.school_id);
   if (meta.name !== 'AuditLog') {
@@ -230,7 +239,8 @@ export async function remove(req, res) {
       entity_id: req.params.id,
       description: `Deleted ${meta.name} ${req.params.id}`,
       before: serialize(meta, existing),
+      metadata: detached || undefined,
     });
   }
-  res.json({ success: true, id: req.params.id });
+  res.json({ success: true, id: req.params.id, ...(detached ? { detached } : {}) });
 }
