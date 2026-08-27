@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { normaliseName, allowsNamesake, duplicateError } from '../src/lib/enrolRules.js';
+import { normaliseName, allowsNamesake, duplicateError, findExisting } from '../src/lib/enrolRules.js';
 
 /**
  * Enrolment rules. These encode the school's actual policy:
@@ -120,7 +120,8 @@ describe('duplicate prevention', () => {
 
   test('a repeated email is refused', () => {
     const err = duplicateError(dupByEmail, { name: 'M Bello', email: 'bello@grace.ng', allowNamesake: false });
-    assert.match(err, /already enrolled here as Mr Bello/);
+    assert.equal(err.code, 'duplicate_email');
+    assert.match(err.message, /already enrolled here as Mr Bello/);
   });
 
   test('an email collision cannot be waved through — one address is one human', () => {
@@ -128,9 +129,15 @@ describe('duplicate prevention', () => {
     assert.ok(err, 'allow_duplicate_name must not override the email key');
   });
 
-  test('a repeated exact name is refused and says how to override', () => {
+  test('a repeated exact name is refused, with a code the caller can act on', () => {
     const err = duplicateError(dupByName, { name: 'Asake Olabode', email: null, allowNamesake: false });
-    assert.match(err, /allow_duplicate_name/);
+    assert.equal(err.code, 'duplicate_name');
+    assert.match(err.message, /already enrolled/);
+  });
+
+  test('the name message never tells a form user to edit a spreadsheet column', () => {
+    const err = duplicateError(dupByName, { name: 'Asake Olabode', email: null, allowNamesake: false });
+    assert.doesNotMatch(err.message, /allow_duplicate_name|row|column|spreadsheet/i);
   });
 
   test('a genuine namesake can be enrolled deliberately', () => {
@@ -150,5 +157,53 @@ describe('duplicate prevention', () => {
   test('the override reads as text from a CSV cell, not just a boolean', () => {
     for (const yes of [true, 'true', 'TRUE', 'Yes', 'y', '1']) assert.ok(allowsNamesake(yes), String(yes));
     for (const no of [undefined, null, '', 'false', 'no', '0', 'maybe']) assert.equal(allowsNamesake(no), false, String(no));
+  });
+});
+
+/**
+ * Siblings. A family with several children at the school uses one address for
+ * all of them — the parent email is deliberately not an identity key, and a
+ * regression here would stop a real family enrolling their second child.
+ */
+describe('a parent email may be reused for every child in the family', () => {
+  const school = 's1';
+  const roll = [{ id: 'p1', school_id: school, full_name: 'Tunde Adeyemi', email: null }];
+  const prisma = {
+    person: {
+      async findFirst({ where }) {
+        return roll.find((p) => {
+          if (where.school_id !== undefined && p.school_id !== where.school_id) return false;
+          if (where.email?.equals !== undefined) return (p.email || '').toLowerCase() === String(where.email.equals).toLowerCase();
+          if (where.full_name?.equals !== undefined) return p.full_name.toLowerCase() === String(where.full_name.equals).toLowerCase();
+          return false;
+        }) || null;
+      },
+    },
+  };
+
+  const check = async (fullName) => {
+    const name = normaliseName(fullName);
+    // A student has no email of their own, which is the whole point.
+    const dup = await findExisting(prisma, school, { email: null, name });
+    return duplicateError(dup, { name, email: null, allowNamesake: false });
+  };
+
+  test('a second child of the same parents enrols', async () => {
+    assert.equal(await check('Bisi Adeyemi'), null);
+  });
+
+  test('a third child of the same parents enrols', async () => {
+    assert.equal(await check('Chidi Adeyemi'), null);
+  });
+
+  test('the lookup never consults a parent email', async () => {
+    // If father_email were ever added as a key, this would start matching.
+    const dup = await findExisting(prisma, school, { email: 'here2there.ng@gmail.com', name: 'Bisi Adeyemi' });
+    assert.equal(dup, null, 'a parent address must not identify a child');
+  });
+
+  test('the same child entered twice is still caught', async () => {
+    const err = await check('Tunde  Adeyemi');
+    assert.equal(err.code, 'duplicate_name');
   });
 });

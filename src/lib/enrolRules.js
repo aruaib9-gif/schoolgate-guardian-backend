@@ -27,8 +27,45 @@ export function allowsNamesake(value) {
 export function duplicateError(dup, { name, email, allowNamesake }) {
   if (!dup) return null;
   if (dup.on === 'email') {
-    return `Skipped — ${email} is already enrolled here as ${dup.person.full_name}.`;
+    return {
+      code: 'duplicate_email',
+      message: `${email} is already enrolled here as ${dup.person.full_name}. One email address belongs to one person.`,
+    };
   }
   if (allowNamesake) return null;
-  return `Skipped — ${name} is already enrolled here. If this is a different person with the same name, set allow_duplicate_name to true on this row.`;
+  return {
+    code: 'duplicate_name',
+    // Deliberately does not mention a spreadsheet column: this fires from the
+    // enrolment form too, where there is no such column to set. The caller
+    // decides how to offer the override — a checkbox on a form, a column in a
+    // sheet — and the code is what tells it this is the overridable rule.
+    message: `Someone called ${name} is already enrolled at this school.`,
+    conflict: { id: dup.person.id, full_name: dup.person.full_name },
+  };
+}
+
+/**
+ * Is this person already on the roll?
+ *
+ * Note what is NOT consulted: father_email and mother_email. A parent email is
+ * deliberately unconstrained — a family with three children at the school uses
+ * the same address three times, and each child is their own person. Only the
+ * person's *own* email identifies them, and children have none.
+ */
+export async function findExisting(prisma, schoolId, { email, name }) {
+  const school = { school_id: schoolId || null };
+
+  if (email) {
+    const byEmail = await prisma.person.findFirst({
+      where: { ...school, email: { equals: email, mode: 'insensitive' } },
+      select: { id: true, full_name: true, email: true },
+    });
+    if (byEmail) return { person: byEmail, on: 'email' };
+  }
+
+  const byName = await prisma.person.findFirst({
+    where: { ...school, full_name: { equals: name, mode: 'insensitive' } },
+    select: { id: true, full_name: true, email: true },
+  });
+  return byName ? { person: byName, on: 'name' } : null;
 }

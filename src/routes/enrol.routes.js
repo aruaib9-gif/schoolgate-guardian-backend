@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { requireAuth, ADMIN_ROLES, hasAnyRole } from '../middleware/auth.js';
 import { asyncHandler, badRequest, forbidden } from '../middleware/error.js';
 import { inviteUser } from '../lib/invite.js';
-import { normaliseName, allowsNamesake, duplicateError } from '../lib/enrolRules.js';
+import { normaliseName, allowsNamesake, duplicateError, findExisting } from '../lib/enrolRules.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -29,36 +29,6 @@ function assertAdmin(req) {
 }
 
 /**
- * Is this person already on the roll?
- *
- * Email is the primary key — one address is one human, so a repeated address is
- * always the same person. Children have no address of their own (the school
- * corresponds with their parents), so those rows fall back to an exact name
- * match within the same school.
- *
- * Both checks are scoped to the school: two schools may each have a Mr Bello.
- * Comparison ignores case and collapsed whitespace, because "asake  olabode"
- * pasted from a spreadsheet is the same child as "Asake Olabode".
- */
-async function findExisting(schoolId, { email, name }) {
-  const school = { school_id: schoolId || null };
-
-  if (email) {
-    const byEmail = await prisma.person.findFirst({
-      where: { ...school, email: { equals: email, mode: 'insensitive' } },
-      select: { id: true, full_name: true, email: true },
-    });
-    if (byEmail) return { person: byEmail, on: 'email' };
-  }
-
-  const byName = await prisma.person.findFirst({
-    where: { ...school, full_name: { equals: name, mode: 'insensitive' } },
-    select: { id: true, full_name: true, email: true },
-  });
-  return byName ? { person: byName, on: 'name' } : null;
-}
-
-/**
  * Create one person + their accounts. Returns what was created so the caller
  * can report it row by row.
  */
@@ -72,11 +42,11 @@ async function enrolOne(req, row) {
   const isStudent = category === 'student';
   const ownEmail = isStudent ? null : ((row.email || '').trim().toLowerCase() || null);
 
-  const dup = await findExisting(schoolId, { email: ownEmail, name });
+  const dup = await findExisting(prisma, schoolId, { email: ownEmail, name });
   const blocked = duplicateError(dup, {
     name, email: ownEmail, allowNamesake: allowsNamesake(row.allow_duplicate_name),
   });
-  if (blocked) throw badRequest(blocked);
+  if (blocked) throw badRequest(blocked.message, { code: blocked.code, conflict: blocked.conflict });
 
   const fatherEmail = (row.father_email || '').trim().toLowerCase() || null;
   const motherEmail = (row.mother_email || '').trim().toLowerCase() || null;
