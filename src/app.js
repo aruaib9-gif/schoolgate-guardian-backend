@@ -21,6 +21,7 @@ import qrRoutes from './routes/qr.routes.js';
 import billingRoutes, { paystackWebhook } from './routes/billing.routes.js';
 import pickupRoutes from './routes/pickup.routes.js';
 import enrolRoutes from './routes/enrol.routes.js';
+import contactRoutes from './routes/contact.routes.js';
 
 export function createApp() {
   const app = express();
@@ -118,6 +119,8 @@ export function createApp() {
   app.use('/api/billing', apiLimiter, billingRoutes);
   app.use('/api/pickup', apiLimiter, pickupRoutes);
   app.use('/api/enrol', apiLimiter, enrolRoutes);
+  // Public: the enquiry form on the marketing site. Carries its own tight limit.
+  app.use('/api/contact', contactRoutes);
 
   // 404 + error handling
   app.use((req, _res, next) => next(notFound(`No route for ${req.method} ${req.path}`)));

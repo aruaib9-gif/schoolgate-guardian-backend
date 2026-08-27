@@ -224,3 +224,39 @@ export function schoolSuspended({ schoolName, graceDays }) {
     }),
   };
 }
+
+/**
+ * An enquiry from the public site, relayed to the support inbox.
+ *
+ * The sender's own words are escaped and shown as a block — this email goes to
+ * staff, and whatever a stranger typed must never be able to style or restructure
+ * what they read. Reply-to is set to the enquirer by the route, so answering is
+ * just hitting reply.
+ */
+export function contactEnquiry({ name, email, phone, school, message }) {
+  const rows = [
+    ['From', name],
+    ['Email', email],
+    ['Phone', phone],
+    ['School', school],
+  ].filter(([, v]) => v);
+
+  return {
+    subject: `Website enquiry — ${name}${school ? ` (${school})` : ''}`,
+    body: [
+      ...rows.map(([k, v]) => `${k}: ${v}`),
+      '',
+      message,
+      '',
+      `— sent from the ${BRAND} website`,
+    ].join('\n'),
+    html: layout({
+      heading: 'New enquiry from the website',
+      intro: rows
+        .map(([k, v]) => `<strong>${esc(k)}:</strong> ${esc(v)}`)
+        .join('<br />'),
+      beforeCta: `<div style="margin:18px 0;padding:14px 16px;background:#f8fafc;border-left:3px solid #4f46e5;border-radius:8px;color:#0f172a;font-size:14px;line-height:1.6;white-space:pre-wrap;">${esc(message)}</div>`,
+      footnote: 'Reply to this email to answer them directly.',
+    }),
+  };
+}
