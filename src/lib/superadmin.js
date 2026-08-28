@@ -7,7 +7,7 @@
  * whatever the schools' admins do in the main app.
  */
 import { prisma } from './prisma.js';
-import { PLANS, planPrice, computeCharge } from './plans.js';
+import { getPlans, planPrice, computeCharge } from './plans.js';
 import { serializeEntitlements } from './entitlements.js';
 
 // Platform billing defaults (singleton row); schools inherit these.
@@ -133,7 +133,7 @@ export function getKpisFrom(schools, pendingInvites) {
 }
 
 export function planDistributionFrom(schools) {
-  return PLANS.map((p) => ({ ...p, count: schools.filter((s) => s.plan === p.id).length })).filter((p) => p.count > 0);
+  return getPlans().map((p) => ({ ...p, count: schools.filter((s) => s.plan === p.id).length })).filter((p) => p.count > 0);
 }
 
 export function stateBreakdownFrom(schools) {

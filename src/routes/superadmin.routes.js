@@ -18,6 +18,13 @@ router.get('/overview', asyncHandler(sa.overview));
 router.get('/series', asyncHandler(sa.series));
 router.get('/plans', asyncHandler(sa.plans));
 router.get('/billing-options', asyncHandler(sa.billingOptions));
+
+// The package catalog — create, edit, retire. Ids are permanent because schools
+// store them; see lib/planAdmin.js.
+router.get('/plan-catalog', asyncHandler(sa.listPlans));
+router.post('/plan-catalog', asyncHandler(sa.createPlan));
+router.patch('/plan-catalog/:id', asyncHandler(sa.updatePlan));
+router.delete('/plan-catalog/:id', asyncHandler(sa.deletePlan));
 router.get('/audit', asyncHandler(sa.auditFeed));
 
 // Platform config

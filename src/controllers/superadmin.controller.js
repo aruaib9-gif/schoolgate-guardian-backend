@@ -7,13 +7,15 @@
  * are what the schools' admins read/write through the main app.
  */
 import { prisma } from '../lib/prisma.js';
-import { PLANS, planById, BILLING_MODES, BILLING_CYCLES, BILLING_DEFAULTS, computeCharge } from '../lib/plans.js';
-import { PLAN_ENTITLEMENTS, FEATURES, LIMIT_KEYS, snapshotFor } from '../lib/entitlements.js';
+import { getPlans, planById, BILLING_MODES, BILLING_CYCLES, BILLING_DEFAULTS, computeCharge } from '../lib/plans.js';
+import { validateId, planData, schoolsOnPlan, syncCatalog } from '../lib/planAdmin.js';
+import { planEntitlements, FEATURES, LIMIT_KEYS, snapshotFor } from '../lib/entitlements.js';
 import {
   listSchoolsWithAggregates, buildOverview, buildSeries,
   getKpisFrom, planDistributionFrom, stateBreakdownFrom, topSchoolsFrom, colorForIndex,
 } from '../lib/superadmin.js';
 import { badRequest, notFound } from '../middleware/error.js';
+import { writeAudit } from '../lib/audit.js';
 import { emitEntityEvent } from '../lib/realtime.js';
 import { issueToken, linkFor } from '../lib/authTokens.js';
 import { sendEmail } from '../lib/email.js';
@@ -127,14 +129,88 @@ export async function series(_req, res) {
   res.json(await buildSeries());
 }
 export function plans(_req, res) {
-  res.json(PLANS);
+  res.json(getPlans());
+}
+
+/**
+ * The package catalog, with the school count each one carries — a package with
+ * schools on it cannot be deleted, and the console needs to know that before
+ * offering the button.
+ */
+export async function listPlans(_req, res) {
+  const rows = await prisma.plan.findMany({ orderBy: [{ sort_order: 'asc' }, { price: 'asc' }] });
+  const counts = await prisma.school.groupBy({ by: ['subscription_plan'], _count: { _all: true } });
+  const bySchool = Object.fromEntries(counts.map((c) => [c.subscription_plan, c._count._all]));
+  res.json(rows.map((p) => ({ ...p, schools: bySchool[p.id] || 0 })));
+}
+
+export async function createPlan(req, res) {
+  const { key, error: idError } = validateId(req.body?.id);
+  if (idError) throw badRequest(idError);
+  if (await prisma.plan.findUnique({ where: { id: key } })) {
+    throw badRequest(`A package with the id "${key}" already exists.`);
+  }
+  const { data, error } = planData(req.body, { validFeatureIds: new Set(FEATURES.map((f) => f.id)) });
+  if (error) throw badRequest(error);
+
+  const plan = await prisma.plan.create({ data: { ...data, id: key, created_by: req.user?.email } });
+  await syncCatalog(prisma);
+  await writeAudit(req, {
+    action: 'create', entity_type: 'Plan', entity_id: plan.id,
+    description: `Created billing package ${plan.name}`, after: plan,
+  });
+  res.status(201).json(plan);
+}
+
+export async function updatePlan(req, res) {
+  const existing = await prisma.plan.findUnique({ where: { id: req.params.id } });
+  if (!existing) throw notFound('Package not found');
+
+  const { data, error } = planData(req.body, { validFeatureIds: new Set(FEATURES.map((f) => f.id)) });
+  if (error) throw badRequest(error);
+
+  const plan = await prisma.plan.update({ where: { id: existing.id }, data });
+  await syncCatalog(prisma);
+  await writeAudit(req, {
+    action: 'update', entity_type: 'Plan', entity_id: plan.id,
+    description: `Updated billing package ${plan.name}`, before: existing, after: plan,
+  });
+  res.json(plan);
+}
+
+/**
+ * Retire or delete. A package still carrying schools is only ever retired —
+ * deleting it would leave those schools priced against nothing.
+ */
+export async function deletePlan(req, res) {
+  const existing = await prisma.plan.findUnique({ where: { id: req.params.id } });
+  if (!existing) throw notFound('Package not found');
+
+  const schools = await schoolsOnPlan(prisma, existing.id);
+  if (schools > 0) {
+    const plan = await prisma.plan.update({ where: { id: existing.id }, data: { is_active: false } });
+    await syncCatalog(prisma);
+    await writeAudit(req, {
+      action: 'update', entity_type: 'Plan', entity_id: plan.id,
+      description: `Retired billing package ${plan.name} (${schools} school(s) still on it)`,
+    });
+    return res.json({ retired: true, schools, plan });
+  }
+
+  await prisma.plan.delete({ where: { id: existing.id } });
+  await syncCatalog(prisma);
+  await writeAudit(req, {
+    action: 'delete', entity_type: 'Plan', entity_id: existing.id,
+    description: `Deleted billing package ${existing.name}`, before: existing,
+  });
+  res.json({ deleted: true, id: existing.id });
 }
 
 // Billing + entitlement catalog for the console: plans, modes, cycles, and
 // which capabilities/limits each plan unlocks.
 export function billingOptions(_req, res) {
   res.json({
-    plans: PLANS.map((p) => ({ ...p, entitlements: PLAN_ENTITLEMENTS[p.id] || null })),
+    plans: getPlans().map((p) => ({ ...p, entitlements: planEntitlements()[p.id] || null })),
     modes: BILLING_MODES,
     cycles: BILLING_CYCLES,
     defaults: BILLING_DEFAULTS,

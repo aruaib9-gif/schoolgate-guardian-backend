@@ -5,12 +5,21 @@ import { prisma } from './lib/prisma.js';
 import { initRealtime } from './lib/realtime.js';
 import { activeProvider } from './lib/email.js';
 import { captureError } from './lib/monitoring.js';
+import { refreshPlans } from './lib/plans.js';
 
 const app = createApp();
 const server = http.createServer(app);
 
 // Attach the realtime (Socket.IO) layer to the same HTTP server.
 initRealtime(server);
+
+// The billing package catalog lives in the database but is read synchronously
+// from memory (see lib/plans.js). Load it before serving, and re-read it
+// periodically so a package edited on one instance reaches the others.
+refreshPlans(prisma)
+  .then((plans) => console.log(`Billing catalog: ${plans.length} package(s) loaded.`))
+  .catch(() => console.warn('Billing catalog: using built-in defaults.'));
+setInterval(() => { refreshPlans(prisma).catch(() => {}); }, 60_000).unref();
 
 server.listen(env.port, () => {
   console.log(`SchoolGate Guardian API listening on http://localhost:${env.port}`);

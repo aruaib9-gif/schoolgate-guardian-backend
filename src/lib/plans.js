@@ -16,14 +16,63 @@
  * MRR/ARR analytics always agree.
  */
 
-// Per-plan rates. `price` is the flat monthly fee; the per-head rates are the
-// default unit prices when a school is billed per student / per person.
-export const PLANS = [
+// The packages a brand-new database starts with. The live catalog lives in the
+// `plans` table — these are the seed and the fallback, so pricing still resolves
+// if the table has not been migrated yet or a read fails.
+export const DEFAULT_PLANS = [
   { id: 'trial', name: 'Trial', price: 0, per_student: 0, per_person: 0, color: 'gray', features: ['Up to 100 people', '1 gate', '14-day access'] },
   { id: 'basic', name: 'Basic', price: 45000, per_student: 120, per_person: 100, color: 'blue', features: ['Up to 500 people', '2 gates', 'Access logs & attendance'] },
   { id: 'premium', name: 'Premium', price: 120000, per_student: 250, per_person: 200, color: 'violet', features: ['Up to 2,000 people', 'Unlimited gates', 'Bus tracking, CRM, reports'] },
   { id: 'enterprise', name: 'Enterprise', price: 280000, per_student: 400, per_person: 320, color: 'green', features: ['Unlimited people', 'Multi-campus', 'Priority support & SLA'] },
 ];
+
+/**
+ * The live catalog.
+ *
+ * Held in module memory and read synchronously, because computeCharge() is
+ * called from invoicing, analytics and half the console — making it async would
+ * ripple through all of them for data that changes a few times a year. It is
+ * refreshed on boot, after any package edit, and on a timer so several
+ * instances converge.
+ */
+let CATALOG = DEFAULT_PLANS.map((p) => ({ ...p }));
+
+export const getPlans = () => CATALOG;
+
+/** Normalise a DB row into the shape the rest of the code expects. */
+const fromRow = (r) => ({
+  id: r.id,
+  name: r.name,
+  color: r.color || 'blue',
+  blurb: r.blurb || '',
+  price: Number(r.price) || 0,
+  per_student: Number(r.per_student) || 0,
+  per_person: Number(r.per_person) || 0,
+  features: r.features || [],
+  entitlements: r.entitlements || [],
+  limits: {
+    people: r.limit_people ?? null,
+    gates: r.limit_gates ?? null,
+  },
+  is_active: r.is_active !== false,
+  sort_order: r.sort_order ?? 0,
+});
+
+export function setCatalog(rows) {
+  // An empty table means "not seeded yet", never "no packages exist" — falling
+  // back beats invoicing every school at zero.
+  CATALOG = rows?.length ? rows.map(fromRow) : DEFAULT_PLANS.map((p) => ({ ...p }));
+}
+
+/** Pull the catalog from the database. Safe to call before the migration runs. */
+export async function refreshPlans(prisma) {
+  try {
+    setCatalog(await prisma.plan.findMany({ orderBy: { sort_order: 'asc' } }));
+  } catch {
+    // Table missing or database unreachable — keep whatever we already had.
+  }
+  return CATALOG;
+}
 
 export const BILLING_MODES = [
   { id: 'flat', name: 'Per school', hint: 'One flat fee per school' },
@@ -47,7 +96,7 @@ export const BILLING_DEFAULTS = {
   annual_discount: 15,
 };
 
-export const planById = (id) => PLANS.find((p) => p.id === id) || PLANS[0];
+export const planById = (id) => CATALOG.find((p) => p.id === id) || CATALOG[0];
 export const planPrice = (id) => planById(id).price;
 export const cycleById = (id) => BILLING_CYCLES.find((c) => c.id === id) || BILLING_CYCLES[0];
 export const modeById = (id) => BILLING_MODES.find((m) => m.id === id) || BILLING_MODES[0];

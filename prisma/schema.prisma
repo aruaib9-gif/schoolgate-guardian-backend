@@ -827,3 +827,34 @@ model Invoice {
   @@index([status])
   @@map("invoices")
 }
+
+/// A billing package. Was a hardcoded constant, which meant a new package or a
+/// price change needed a deploy — and a school that did not fit any package had
+/// to be squeezed into one. The catalog lives here now; per-school overrides on
+/// School still take precedence over whatever the package says.
+model Plan {
+  id           String   @id                       // stable key stored on School.subscription_plan
+  name         String
+  color        String   @default("blue")
+  blurb        String?
+
+  // The three ways a package can be priced. Which one is used depends on the
+  // school's billing_mode (or the platform default) — see lib/plans.js.
+  price        Int      @default(0)               // flat, per school per month
+  per_student  Int      @default(0)               // per student per month
+  per_person   Int      @default(0)               // per student+staff per month
+
+  features     String[] @default([])              // marketing bullets, shown on the card
+  entitlements String[] @default([])              // capability ids the package unlocks
+  limit_people Int?                               // null = unlimited
+  limit_gates  Int?
+
+  is_active    Boolean  @default(true)            // retired packages stay for existing schools
+  sort_order   Int      @default(0)
+
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+  created_by   String?
+
+  @@map("plans")
+}

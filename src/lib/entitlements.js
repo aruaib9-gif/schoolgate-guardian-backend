@@ -14,6 +14,8 @@
  *   LIMITS    — numeric caps (null = unlimited), enforced on create.
  */
 
+import { getPlans } from './plans.js';
+
 // Every gate-able capability in the product.
 export const FEATURES = [
   { id: 'access_logs', name: 'Gate scanning & access logs', core: true },
@@ -30,8 +32,14 @@ export const FEATURES = [
 
 export const LIMIT_KEYS = ['people', 'gates'];
 
-// Plan catalog. `limits: null` means unlimited.
-export const PLAN_ENTITLEMENTS = {
+/**
+ * What each package unlocks now comes from the same catalog that prices it —
+ * see lib/plans.js. Keeping a second hardcoded copy here is how a package could
+ * be sold as including bus tracking while the API still refused it.
+ *
+ * These remain as the fallback for a database that has not been seeded.
+ */
+export const DEFAULT_PLAN_ENTITLEMENTS = {
   trial: {
     features: ['access_logs', 'people'],
     limits: { people: 100, gates: 1 },
@@ -71,15 +79,29 @@ export const ENTITY_FEATURE = {
   CRMSalesTarget: 'crm',
 };
 
+/** The live entitlement map, derived from the package catalog. */
+export function planEntitlements() {
+  const out = {};
+  for (const p of getPlans()) {
+    out[p.id] = {
+      features: p.entitlements?.length ? [...p.entitlements] : [],
+      limits: p.limits || { people: null, gates: null },
+    };
+  }
+  return Object.keys(out).length ? out : DEFAULT_PLAN_ENTITLEMENTS;
+}
+
 const planKey = (school) => {
+  const map = planEntitlements();
   const p = school?.subscription_plan || school?.plan || 'trial';
-  return PLAN_ENTITLEMENTS[p] ? p : 'trial';
+  return map[p] ? p : (map.trial ? 'trial' : Object.keys(map)[0]);
 };
 
 /** Capture what a plan includes right now — stored on the school at signup. */
 export function snapshotFor(plan) {
-  const key = PLAN_ENTITLEMENTS[plan] ? plan : 'trial';
-  const base = PLAN_ENTITLEMENTS[key];
+  const map = planEntitlements();
+  const key = map[plan] ? plan : planKey({});
+  const base = map[key];
   return {
     plan: key,
     features: [...base.features],
@@ -92,7 +114,7 @@ export function snapshotFor(plan) {
 export function isGrandfathered(school = {}) {
   const snap = school.entitlement_snapshot;
   if (!snap || !Array.isArray(snap.features)) return false;
-  const current = PLAN_ENTITLEMENTS[planKey(school)];
+  const current = planEntitlements()[planKey(school)];
   if (!current) return false;
   const a = [...snap.features].sort().join(',');
   const b = [...current.features].sort().join(',');
@@ -114,7 +136,7 @@ export function entitlements(school = {}) {
   const base =
     snap && Array.isArray(snap.features)
       ? { features: snap.features, limits: snap.limits || {} }
-      : PLAN_ENTITLEMENTS[key];
+      : planEntitlements()[key];
 
   const features = new Set(base.features);
   const fo = school.feature_overrides;
@@ -169,20 +191,36 @@ export function checkLimit(school, key, used = 0) {
   };
 }
 
-export const PLAN_ORDER = ['trial', 'basic', 'premium', 'enterprise'];
+/**
+ * Packages cheapest-first. Ordered by price rather than by a fixed list, so an
+ * upgrade suggestion still points at the cheapest package that actually solves
+ * the problem once someone adds a package of their own.
+ */
+export function planOrder() {
+  return getPlans()
+    .filter((p) => p.is_active !== false)
+    .slice()
+    .sort((a, b) => (a.price || 0) - (b.price || 0) || (a.sort_order || 0) - (b.sort_order || 0))
+    .map((p) => p.id);
+}
+export const PLAN_ORDER = ['trial', 'basic', 'premium', 'enterprise']; // legacy default
 
-/** The cheapest plan that includes `feature` — used to suggest an upgrade. */
+const dearest = () => planOrder().slice(-1)[0] || 'enterprise';
+
+/** The cheapest package that includes `feature` — used to suggest an upgrade. */
 export function upgradeFor(feature) {
-  return PLAN_ORDER.find((p) => PLAN_ENTITLEMENTS[p].features.includes(feature)) || 'enterprise';
+  const map = planEntitlements();
+  return planOrder().find((p) => map[p]?.features.includes(feature)) || dearest();
 }
 
-/** The cheapest plan whose `key` cap clears `needed` (null cap = unlimited). */
+/** The cheapest package whose `key` cap clears `needed` (null cap = unlimited). */
 export function upgradeForLimit(key, needed) {
+  const map = planEntitlements();
   return (
-    PLAN_ORDER.find((p) => {
-      const cap = PLAN_ENTITLEMENTS[p].limits[key];
+    planOrder().find((p) => {
+      const cap = map[p]?.limits?.[key];
       return cap === null || cap === undefined || cap > needed;
-    }) || 'enterprise'
+    }) || dearest()
   );
 }
 
