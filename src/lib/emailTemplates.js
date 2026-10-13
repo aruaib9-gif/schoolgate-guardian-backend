@@ -260,3 +260,87 @@ export function contactEnquiry({ name, email, phone, school, message }) {
     }),
   };
 }
+
+/**
+ * Account deletion request → the support inbox.
+ *
+ * Subject is prefixed so it can be filtered and tracked against the turnaround
+ * we promise on the website; the requester's address is the reply-to, so
+ * answering them is just hitting reply.
+ */
+export function deletionRequest({ name, email, school, scope, reason }) {
+  const what = scope === 'data'
+    ? 'Erase my personal data but keep my login'
+    : 'Delete my account and my personal data';
+
+  const rows = [
+    ['From', name],
+    ['Account email', email],
+    ['School', school],
+    ['Asking for', what],
+  ].filter(([, v]) => v);
+
+  return {
+    subject: `[Deletion request] ${name}${school ? ` — ${school}` : ''}`,
+    body: [
+      ...rows.map(([k, v]) => `${k}: ${v}`),
+      '',
+      reason || '(no reason given)',
+      '',
+      'Confirm the requester owns this address before acting, then action it',
+      'within 30 days and reply to them when it is done.',
+      '',
+      `— sent from the ${BRAND} website`,
+    ].join('\n'),
+    html: layout({
+      heading: 'Account deletion request',
+      intro: rows.map(([k, v]) => `<strong>${esc(k)}:</strong> ${esc(v)}`).join('<br />'),
+      beforeCta: reason
+        ? `<div style="margin:18px 0;padding:14px 16px;background:#f8fafc;border-left:3px solid #4f46e5;border-radius:8px;color:#0f172a;font-size:14px;line-height:1.6;white-space:pre-wrap;">${esc(reason)}</div>`
+        : '',
+      footnote: 'Confirm they own this address, action it within 30 days, and reply when it is done.',
+    }),
+  };
+}
+
+/** Receipt to the person who asked, so they can show they asked and when. */
+export function deletionAcknowledgement({ name, scope }) {
+  const what = scope === 'data'
+    ? 'erase your personal data while keeping your login'
+    : 'delete your account and your personal data';
+
+  const intro = `We have your request to ${what}. Someone will confirm it is you, `
+    + 'action it within 30 days, and email you when it is done.';
+
+  return {
+    subject: `We received your deletion request — ${BRAND}`,
+    body: [
+      `Hello ${name},`,
+      '',
+      intro,
+      '',
+      'Two things we cannot remove, so you know before we start:',
+      '',
+      '  * Gate and bus scan records. These are the school\'s safeguarding',
+      '    record of who collected a child and when, and the school is required',
+      '    to keep them. They stay with the school.',
+      '  * A pupil\'s place on the register. The school owns its roll, so a',
+      '    parent account closing does not take a child off it. Ask the school',
+      '    office if the pupil has left.',
+      '',
+      `— ${BRAND}`,
+    ].join('\n'),
+    html: layout({
+      heading: 'We received your request',
+      intro: esc(intro),
+      beforeCta: `<div style="margin:18px 0;padding:14px 16px;background:#fffbeb;border-left:3px solid #f59e0b;border-radius:8px;color:#0f172a;font-size:14px;line-height:1.6;">
+        <strong>Two things we cannot remove:</strong><br />
+        <strong>Gate and bus scan records</strong> — the school's safeguarding record of who
+        collected a child and when, which it is required to keep.<br />
+        <strong>A pupil's place on the register</strong> — the school owns its roll, so closing a
+        parent account does not take a child off it. Ask the school office if the pupil has left.
+      </div>`,
+      footnote: 'If you did not make this request, reply to this email and we will stop it.',
+    }),
+  };
+}

@@ -128,10 +128,24 @@ router.patch(
   })
 );
 
-// POST /auth/logout — stateless JWT; provided for API symmetry.
-router.post('/logout', requireAuth, (req, res) => {
+/**
+ * POST /auth/logout
+ *
+ * The JWT itself is stateless, so there is no session to end. What this does
+ * end is the device's push registration: a parent who signs out on a shared or
+ * handed-on phone must stop receiving alerts about their child, and the token
+ * otherwise sits on their user row until FCM happens to reject it — which never
+ * happens while the app is still installed for the next person.
+ *
+ * Failure here must not block the sign-out. The client has already decided to
+ * go; refusing would strand them signed in.
+ */
+router.post('/logout', requireAuth, asyncHandler(async (req, res) => {
+  await prisma.user
+    .update({ where: { id: req.user.id }, data: { push_token: null } })
+    .catch((e) => console.warn('[auth] could not clear push token on logout:', e?.message));
   res.json({ success: true });
-});
+}));
 
 // POST /auth/change-password
 router.post(
