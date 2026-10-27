@@ -21,6 +21,7 @@ import qrRoutes from './routes/qr.routes.js';
 import billingRoutes, { paystackWebhook } from './routes/billing.routes.js';
 import pickupRoutes from './routes/pickup.routes.js';
 import enrolRoutes from './routes/enrol.routes.js';
+import checkinRoutes from './routes/checkin.routes.js';
 import contactRoutes from './routes/contact.routes.js';
 import accountDeletionRoutes from './routes/accountDeletion.routes.js';
 
@@ -120,6 +121,8 @@ export function createApp() {
   app.use('/api/billing', apiLimiter, billingRoutes);
   app.use('/api/pickup', apiLimiter, pickupRoutes);
   app.use('/api/enrol', apiLimiter, enrolRoutes);
+  // Staff self check-in by campus geofence (arrival only — see the route file).
+  app.use('/api/checkin', apiLimiter, checkinRoutes);
   // Public: the enquiry form on the marketing site. Carries its own tight limit.
   app.use('/api/contact', contactRoutes);
   // Public: the account-deletion route Google Play requires. Same shape.

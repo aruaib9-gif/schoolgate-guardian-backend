@@ -75,6 +75,15 @@ model School {
   timezone          String   @default("UTC")
   gate_locations    String[] @default([])
   settings          Json?
+
+  // --- campus geofence (staff self check-in) ---
+  // Set by the school's own administrator. Self check-in stays off until a
+  // centre has been recorded, because a fence with no centre would either
+  // accept everyone or nobody.
+  latitude             Float?
+  longitude            Float?
+  geofence_radius_m    Int?     @default(150)
+  self_checkin_enabled Boolean  @default(false)
   notes             String?
 
   // --- platform / super-admin fields (kept in sync with the Super Admin console) ---
@@ -190,7 +199,14 @@ model AccessLog {
   scanned_by      String?
   gate_name       String?
   notes           String?
-  pass_type       String   @default("regular") // regular | one_time | guest
+  pass_type       String   @default("regular") // regular | one_time | guest | self_checkin
+  // Where a self check-in was made from, kept so a disputed attendance record
+  // can be examined later. Client-reported, therefore evidence of what the
+  // device claimed, not proof of where the person was.
+  device_latitude  Float?
+  device_longitude Float?
+  device_accuracy_m Float?
+  distance_m       Float?
 
   created_date DateTime @default(now())
   updated_date DateTime @updatedAt
