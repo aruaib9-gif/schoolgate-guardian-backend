@@ -10,6 +10,7 @@ import { serializeEntitlements } from '../lib/entitlements.js';
 import { issueToken, peekToken, consumeToken, linkFor } from '../lib/authTokens.js';
 import { sendEmail } from '../lib/email.js';
 import { passwordReset } from '../lib/emailTemplates.js';
+import { normalisePhotoUrl } from '../lib/photoUrl.js';
 
 const router = Router();
 
@@ -116,6 +117,14 @@ router.patch(
     const allowed = ['full_name', 'gate_name', 'assigned_bus_id', 'profile_completed', 'push_token', 'photo_url'];
     const data = {};
     for (const k of allowed) if (k in body) data[k] = body[k];
+    if ('photo_url' in data) {
+      // Same rule as the admin path: only a file from our own upload endpoint.
+      const url = normalisePhotoUrl(data.photo_url);
+      if (url === null && data.photo_url !== null && data.photo_url !== '') {
+        throw badRequest('photo_url must be a file uploaded to this server');
+      }
+      data.photo_url = url;
+    }
     if (body.password) data.password_hash = await hashPassword(body.password);
     const user = await prisma.user.update({ where: { id: req.user.id }, data });
     // A profile photo belongs to the person, not just the login — propagate it

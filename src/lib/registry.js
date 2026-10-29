@@ -1,4 +1,6 @@
 import { Prisma } from '@prisma/client';
+import { badRequest } from '../middleware/error.js';
+import { normalisePhotoUrl } from './photoUrl.js';
 
 // ---------------------------------------------------------------------------
 // Entity registry
@@ -136,6 +138,17 @@ export function coerceInput(meta, body, { isCreate = false } = {}) {
   for (const [key, value] of Object.entries(body || {})) {
     if (MANAGED_FIELDS.has(key)) continue;
     if (!meta.scalarFields.has(key)) continue; // ignore unknown keys
+    if (key.endsWith('photo_url')) {
+      // A photo has to be a file this server is serving — see photoUrl.js.
+      // Refused rather than silently blanked, so a bad value is visible
+      // instead of quietly wiping the picture that was already there.
+      const url = normalisePhotoUrl(value);
+      if (url === null && value !== null && value !== '') {
+        throw badRequest(`${key} must be a file uploaded to this server`);
+      }
+      data[key] = url;
+      continue;
+    }
     const coerced = coerceScalar(meta, key, value);
     if (coerced === undefined) continue;
     data[key] = coerced;

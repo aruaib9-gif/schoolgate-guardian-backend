@@ -19,6 +19,20 @@ export const env = {
   publicUrl: (process.env.PUBLIC_URL || `http://localhost:${num(process.env.PORT, 4000)}`).replace(/\/$/, ''),
   maxUploadMb: num(process.env.MAX_UPLOAD_MB, 10),
 
+  // Object storage for uploads (Cloudflare R2, reached over its S3-compatible
+  // API). Set these and photos go to the bucket instead of the container's
+  // local disk, which Render wipes on every deploy. Leave them unset and the
+  // app uses ./uploads — which is what local development and the tests do.
+  r2: {
+    accountId: process.env.R2_ACCOUNT_ID || '',
+    bucket: process.env.R2_BUCKET || '',
+    accessKeyId: process.env.R2_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
+    // Where the bucket is readable from: its r2.dev address or a custom
+    // domain. Not the S3 endpoint, which is for writing and needs signing.
+    publicBase: (process.env.R2_PUBLIC_BASE || '').replace(/\/$/, ''),
+  },
+
   // Email transport: 'resend' | 'smtp' | 'console'. Auto-detected when unset.
   emailProvider: process.env.EMAIL_PROVIDER || '',
   resendApiKey: process.env.RESEND_API_KEY || '',
@@ -56,6 +70,40 @@ export const env = {
 };
 
 /**
+ * Object storage is all-or-nothing. A half-configured bucket would fall back to
+ * the local disk without a word, and the whole point of the bucket is that the
+ * disk silently loses files — so a typo in one variable would look exactly like
+ * success until the next deploy took the photos with it. Fail loudly instead,
+ * in every environment.
+ */
+{
+  const r2Keys = {
+    R2_ACCOUNT_ID: env.r2.accountId,
+    R2_BUCKET: env.r2.bucket,
+    R2_ACCESS_KEY_ID: env.r2.accessKeyId,
+    R2_SECRET_ACCESS_KEY: env.r2.secretAccessKey,
+    R2_PUBLIC_BASE: env.r2.publicBase,
+  };
+  const set = Object.entries(r2Keys).filter(([, v]) => v);
+  const missing = Object.entries(r2Keys).filter(([, v]) => !v).map(([k]) => k);
+
+  if (set.length && missing.length) {
+    console.error(
+      'Refusing to start: object storage is partly configured.\n' +
+      `  Set: ${set.map(([k]) => k).join(', ')}\n` +
+      `  Missing: ${missing.join(', ')}\n` +
+      '  Set all five to use the bucket, or none to use the local ./uploads directory.'
+    );
+    process.exit(1);
+  }
+
+  if (!missing.length && !env.r2.publicBase.startsWith('https://')) {
+    console.error(`Refusing to start: R2_PUBLIC_BASE "${env.r2.publicBase}" is not https.`);
+    process.exit(1);
+  }
+}
+
+/**
  * Refuse to boot with a configuration that is known-unsafe in production.
  * Every check here corresponds to a real foot-gun: dev defaults that are fine
  * locally but, left in place on a public deployment, hand out access.
@@ -78,6 +126,13 @@ if (env.nodeEnv === 'production') {
   }
   if (env.seed.superadminPassword === 'ChangeMe123!') {
     fatal.push('SEED_SUPERADMIN_PASSWORD is still the example value.');
+  }
+  if (!env.r2.bucket && env.uploadDir.startsWith('./')) {
+    console.warn(
+      `Warning: uploads go to "${env.uploadDir}", a relative path on the container filesystem.\n` +
+      '  On a host with an ephemeral filesystem every uploaded photo is lost at the next deploy.\n' +
+      '  Configure R2_* for object storage, or point UPLOAD_DIR at a mounted disk.'
+    );
   }
   if (fatal.length) {
     console.error('Refusing to start: unsafe production configuration.\n' + fatal.map((m) => `  - ${m}`).join('\n'));

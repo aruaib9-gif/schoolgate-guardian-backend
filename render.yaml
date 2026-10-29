@@ -14,8 +14,9 @@
 # ⚠️  PRODUCTION: both plans below are `free` for evaluation. Free Render
 # databases ARE DELETED after ~90 days (with their data), and free web
 # services sleep between requests. Change both to `starter` or higher before
-# real schools depend on this. Uploaded files also need persistent storage
-# (Render Disk or S3) — the container filesystem is wiped on every deploy.
+# real schools depend on this. Uploaded files need the R2_* block below set in
+# the dashboard — the container filesystem is wiped on every deploy, so without
+# it every staff and pupil photo is lost each time the service redeploys.
 # ---------------------------------------------------------------------------
 databases:
   - name: schoolgate-db
@@ -89,4 +90,18 @@ services:
       - key: SMTP_PASS
         sync: false
       - key: EMAIL_FROM
+        sync: false
+      # Object storage for uploaded photos (Cloudflare R2). All five must be
+      # set together or the service refuses to start — see RENDER_R2.md.
+      # Without them, photos go to the container filesystem and are lost on
+      # every deploy.
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_PUBLIC_BASE
         sync: false

@@ -1,30 +1,21 @@
 import { Router } from 'express';
 import multer from 'multer';
-import fs from 'node:fs';
 import path from 'node:path';
-import { nanoid } from 'nanoid';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler, badRequest } from '../middleware/error.js';
 import { env } from '../config/env.js';
 import { sendEmail } from '../lib/email.js';
+import * as storage from '../lib/storage.js';
+import { processUpload } from '../lib/photoPipeline.js';
 
 const router = Router();
 router.use(requireAuth);
 
-// Ensure upload dir exists.
-fs.mkdirSync(env.uploadDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, env.uploadDir),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname || '');
-    const base = path
-      .basename(file.originalname || 'file', ext)
-      .replace(/[^a-zA-Z0-9-_]/g, '_')
-      .slice(0, 40);
-    cb(null, `${Date.now()}-${nanoid(8)}-${base}${ext}`);
-  },
-});
+// Held in memory rather than written straight to disk: every image is
+// re-encoded before it is stored (see photoPipeline.js), so the original is
+// never the thing we keep, and the destination may not be a filesystem at all.
+// Bounded by the same limits.fileSize below.
+const uploadBuffer = multer.memoryStorage();
 // Allowlist, not blocklist. Notably absent: SVG and HTML — both execute script
 // when served inline from /uploads, which would be stored XSS on our origin.
 const ALLOWED_UPLOADS = new Map([
@@ -37,7 +28,7 @@ const ALLOWED_UPLOADS = new Map([
 ]);
 
 const upload = multer({
-  storage,
+  storage: uploadBuffer,
   limits: { fileSize: env.maxUploadMb * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allowedExts = ALLOWED_UPLOADS.get(file.mimetype);
@@ -61,13 +52,25 @@ router.post(
   upload.single('file'),
   asyncHandler(async (req, res) => {
     if (!req.file) throw badRequest('No file uploaded (expected multipart field "file")');
-    const file_url = `${env.publicUrl}/uploads/${req.file.filename}`;
+
+    // Shrink, straighten and strip the image before it is stored. Throws a 400
+    // for a file that claims to be an image and cannot be read as one.
+    const { body, contentType, ext } = await processUpload({
+      buffer: req.file.buffer,
+      mimetype: req.file.mimetype,
+    });
+
+    const filename = storage.storedName(req.file.originalname, ext);
+    const file_url = await storage.put({ key: filename, body, contentType });
+
     res.json({
       file_url,
-      filename: req.file.filename,
+      filename,
       original_name: req.file.originalname,
-      size: req.file.size,
-      mime_type: req.file.mimetype,
+      size: body.length,              // what we stored, not what was sent
+      original_size: req.file.size,
+      mime_type: contentType,
+      storage: storage.driver,
     });
   })
 );

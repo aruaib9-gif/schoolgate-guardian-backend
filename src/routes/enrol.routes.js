@@ -5,6 +5,7 @@ import { requireAuth, ADMIN_ROLES, hasAnyRole } from '../middleware/auth.js';
 import { asyncHandler, badRequest, forbidden } from '../middleware/error.js';
 import { inviteUser } from '../lib/invite.js';
 import { normaliseName, allowsNamesake, duplicateError, findExisting } from '../lib/enrolRules.js';
+import { normalisePhotoUrl } from '../lib/photoUrl.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -71,6 +72,8 @@ async function enrolOne(req, row) {
       father_name: (row.father_name || '').trim() || null,
       mother_email: motherEmail,
       mother_name: (row.mother_name || '').trim() || null,
+      // Rejected unless it is a file from our own upload endpoint — see photoUrl.js.
+      photo_url: normalisePhotoUrl(row.photo_url) ?? null,
       qr_code: newQr(),               // never left to the client to invent
       current_status: 'outside',
       active: true,

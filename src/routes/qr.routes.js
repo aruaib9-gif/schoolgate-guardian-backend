@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import QRCode from 'qrcode';
 import { randomBytes } from 'node:crypto';
+import { imgCspSources } from '../lib/storage.js';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth, ADMIN_ROLES, hasAnyRole } from '../middleware/auth.js';
 import { asyncHandler, notFound, forbidden } from '../middleware/error.js';
@@ -72,7 +73,7 @@ router.get(
     const nonce = randomBytes(16).toString('base64');
     res.setHeader(
       'Content-Security-Policy',
-      `default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none'`
+      `default-src 'none'; img-src 'self' data:${imgCspSources ? ' ' + imgCspSources : ''}; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none'`
     );
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(`<!doctype html><html><head><meta charset="utf-8">
