@@ -1,7 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { resolveEntity, coerceInput } from '../lib/registry.js';
 import { buildWhere, buildOrderBy, parsePaging } from '../lib/query.js';
-import { assertPermission } from '../lib/permissions.js';
+import { assertPermission, applyRecordScope, recordBlock } from '../lib/permissions.js';
 import { applyTenantScope, stampTenantOnCreate, tenantBlock } from '../lib/tenant.js';
 import { hashPassword } from '../lib/auth.js';
 import { writeAudit } from '../lib/audit.js';
@@ -79,6 +79,7 @@ export async function list(req, res) {
   await assertPermission(req, meta, 'read');
   let where = buildWhere(meta, req.query);
   where = applyTenantScope(req, meta, where);
+  where = await applyRecordScope(req, meta, where);
   const orderBy = buildOrderBy(meta, req.query.sort);
   const { take, skip } = parsePaging(req.query);
   const rows = await delegate(meta).findMany({ where, orderBy, take, skip });
@@ -93,6 +94,7 @@ export async function query(req, res) {
   const rawFilters = body.where || body.filters || {};
   let where = buildWhere(meta, rawFilters);
   where = applyTenantScope(req, meta, where);
+  where = await applyRecordScope(req, meta, where);
   const orderBy = buildOrderBy(meta, body.sort);
   const { take, skip } = parsePaging({ limit: body.limit, skip: body.skip, offset: body.offset });
   const rows = await delegate(meta).findMany({ where, orderBy, take, skip });
@@ -105,6 +107,7 @@ export async function count(req, res) {
   await assertPermission(req, meta, 'read');
   let where = buildWhere(meta, req.query);
   where = applyTenantScope(req, meta, where);
+  where = await applyRecordScope(req, meta, where);
   const total = await delegate(meta).count({ where });
   res.json({ count: total });
 }
@@ -116,6 +119,9 @@ export async function getOne(req, res) {
   const record = await delegate(meta).findUnique({ where: { id: req.params.id } });
   if (!record) throw notFound(`${meta.name} not found`);
   if (tenantBlock(req, meta, record)) throw notFound(`${meta.name} not found`);
+  // Somebody else's record is answered the same way as one that does not
+  // exist: whether it exists is itself not this caller's business.
+  if (await recordBlock(req, meta, record)) throw notFound(`${meta.name} not found`);
   res.json(serialize(meta, record));
 }
 
@@ -174,6 +180,9 @@ async function fetchScopedOr404(req, meta) {
   if (block === 'forbidden') {
     throw forbidden('This is a platform-wide default. Save your changes as a school-specific override instead.');
   }
+  // An 'own' grant covers changing and deleting too, not just reading — so a
+  // teacher cannot cancel a pass another member of staff issued.
+  if (await recordBlock(req, meta, existing)) throw notFound(`${meta.name} not found`);
   return existing;
 }
 

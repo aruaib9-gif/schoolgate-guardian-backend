@@ -15,6 +15,7 @@
     "prisma:validate": "prisma validate",
     "db:push": "prisma db push",
     "seed": "node prisma/seed.js",
+    "roles:sync": "node scripts/sync-role-permissions.js",
     "seed:demo": "node prisma/seed-demo.js && node prisma/seed-demo-extras.js"
   },
   "engines": {

@@ -29,6 +29,25 @@ export const RESOURCE_MAP = {
   AuditLog: 'audit_log',
 };
 
+/**
+ * The column naming WHO a record is about, for records that are about a person.
+ *
+ * Distinct from created_by, which names who made the record. A gate log is
+ * created by the guard holding the scanner and is about the person scanned, so
+ * scoping logs by created_by would show a parent every child that guard
+ * scanned and none of their own.
+ *
+ * A model absent from here cannot be limited to a person, and a 'self' grant
+ * over it is refused rather than widened — see lib/permissions.js.
+ */
+export const SUBJECT_FIELD = {
+  AccessLog: 'person_id',
+  BusScanLog: 'person_id',
+  SecurityAlert: 'person_id',
+  Attendance: 'student_id',
+  Person: 'id',
+};
+
 // Map HTTP verbs to the permission action names stored in RolePermissions.
 export const ACTION_MAP = {
   read: ['view'],
@@ -82,6 +101,7 @@ function buildModelMeta(model) {
     boolFields: new Set(boolFields),
     hasSchoolId: Object.prototype.hasOwnProperty.call(fields, 'school_id'),
     hasCreatedBy: Object.prototype.hasOwnProperty.call(fields, 'created_by'),
+    subjectField: SUBJECT_FIELD[model.name] || null,
     resource: RESOURCE_MAP[name] || null,
   };
 }
